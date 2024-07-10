@@ -3,7 +3,7 @@ pub mod parser;
 
 use clap::{builder::Str, Parser};
 use bio::io::{bed::Record, fasta::Reader};
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, time::Instant};
 
 use num::ToPrimitive;
 
@@ -19,8 +19,10 @@ fn main() -> Result<(), String> {
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
     
     let mut searcher = Searcher::new(query.clone(), db, args.threshhold, args.n_saved, args.length);
-
+    let now = Instant::now();
     searcher.align();
+    
+    println!("Search finished after {:?}s", now.elapsed());
 
     let db_reader = Reader::from_file(args.db_file).unwrap();
     let summary = searcher.summary(&mut db_reader.records());
@@ -37,7 +39,7 @@ fn main() -> Result<(), String> {
         print!("{}", convert_to_ascii(char));
     }
     
-    let similarity = query.clone().seq().len().to_f64().unwrap() / summary.score.to_f64().unwrap();
+    let similarity = summary.score.to_f64().unwrap() / query.clone().seq().len().to_f64().unwrap();
     println!("\nSimilarity: {}%", similarity * 100.0);
     
     Ok(())

@@ -65,14 +65,14 @@ impl Searcher {
     pub fn align(&mut self) {
         self.get_word();
         self.seed();
-        let val = &self.best_hits[&0];
+        //let val = &self.best_hits[&0];
         
-        let val = &self.best_hits[&0];
-        for (key, item) in val.iter() {
-            println!("{:?}", (key, item));
-        }
+        //let val = &self.best_hits[&0];
+        //for (key, item) in val.iter() {
+            //println!("{:?}", (key, item));
+        //}
         
-        println!("{}", val.len());
+        //println!("{}", val.len());
         /*
         self.set_query_as_word();
 
@@ -119,29 +119,33 @@ impl Searcher {
         //let database = self.db.clone();
 
         let mut database = self.db.try_lock().unwrap();
+        let mut num = 0;
 
         while let Some(record) = database.next() {
-            let record = record.unwrap();
+            let rec = record.unwrap();
             let word = self.word.read().unwrap().clone();
             let next_word = word2.clone();
             handles.push(thread::spawn(move || {
+                //let rec = record;
+                let num2 = num.clone();
                 let mut hits: HashMap<usize, u32> = HashMap::new();
-                for i in word_start..record.seq().len() - word_len - word_start {
-                    let score = get_score(word.clone(), &record.seq()[i..i + word_len]);
+                for i in word_start..rec.seq().len() + word_len - word_start - next_word.len() {
+                    let score = get_score(word.clone(), &rec.seq()[i..i + word_len]);
                     if score >= threshhold {
                         add_to_hits(&mut hits, score, i, 0);
                     }
                 }
-                println!("done");
+                println!("thread {num2} done");
                 for (index, score) in hits.iter_mut() {
-                    println!("{index}");
-                    println!("{}", next_word.len());
-                    println!("rec: {}", record.seq().len());
-                    *score = get_score(next_word.clone(), &record.seq()[index - word_start..index + &next_word.len() - word_start])
+                    //println!("thread {num2} idx: {index}");
+                    //println!("thread {num2} word_len: {}", next_word.len());
+                    //println!("thread {num2} record_len: {}", rec.seq().len());
+                    *score = get_score(next_word.clone(), &rec.seq()[index - word_start..index + &next_word.len() - word_start])
                 }
-                println!("done2");
+                println!("thread {num2} done2");
                 hits
-            }))
+            }));
+            num += 1;
         }
         for (i, handle) in handles.into_iter().enumerate() {
             let hits = handle.join().unwrap();
@@ -168,7 +172,7 @@ impl Searcher {
                 }
             }
         }
-        println!("{}", best_idx.0);
+        //println!("{}", best_idx.0);
         //let mut db = self.db.try_lock().unwrap();
         let binding = db.nth(best_idx.0).unwrap().unwrap();
         let seq = &binding.seq()[best_idx.1 - self.word_start..best_idx.1 - self.word_start + self.query.seq().len()];
