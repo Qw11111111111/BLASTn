@@ -1,13 +1,13 @@
 pub mod blastn;
 pub mod parser;
 
-use clap::{builder::Str, Parser};
-use bio::io::{bed::Record, fasta::Reader};
+use clap::Parser;
+use bio::io::fasta::Reader;
 use std::{sync::{Arc, Mutex}, time::Instant};
 
 use num::ToPrimitive;
 
-use blastn::{Searcher, Summary};
+use blastn::Searcher;
 use parser::Args;
 
 fn main() -> Result<(), String> {
@@ -18,7 +18,7 @@ fn main() -> Result<(), String> {
     let db = Arc::from(Mutex::from(db_reader.records()));
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
     
-    let mut searcher = Searcher::new(query.clone(), db, args.threshhold, args.n_saved, args.length);
+    let mut searcher = Searcher::new(query.clone(), db, args.threshhold, args.length);
     let now = Instant::now();
     searcher.align();
     

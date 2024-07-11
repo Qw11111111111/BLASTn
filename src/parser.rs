@@ -11,10 +11,6 @@ pub struct Args {
     #[arg(short, long)]
     pub db_file: String,
 
-    /// number of seeds
-    #[arg(short, long, default_value = "100")]
-    pub n_saved: usize,
-
     /// threshhold for seeding
     #[arg(short, long, default_value = "7")]
     pub threshhold: u32,
