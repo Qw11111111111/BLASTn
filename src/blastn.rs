@@ -1,10 +1,9 @@
 use std::{
-    collections::HashMap,
-    fs::File,
-    thread,
-    io::BufReader,
-    sync::{Arc, Mutex, RwLock}
+    collections::HashMap, fmt, fs::File, io::BufReader, sync::{Arc, Mutex, RwLock}, thread
 };
+
+use clap::builder::Str;
+use num::ToPrimitive;
 
 use rand::{thread_rng, Rng};
 
@@ -96,7 +95,7 @@ impl Searcher {
         }
     }
 
-    fn set_query_as_word(&mut self) -> Vec<u8> {
+    fn set_query_as_word(&self) -> Vec<u8> {
         let mut word = vec![];
         for &val in self.query.seq().iter() { 
             word.push(val);
@@ -116,18 +115,33 @@ impl Searcher {
             }
         }
 
-        let binding = db.nth(best_idx.0).unwrap().unwrap();
-        let seq = &binding.seq()[best_idx.1 - self.word_start..best_idx.1 - self.word_start + self.query.seq().len()];
 
-        let mut word = vec![];
-        for &val in seq.iter() { 
-            word.push(val);
+        let query = self.set_query_as_word();
+        let mut word: Vec<u8> = vec![];
+        let similarity: f64;
+        let name: String;
+        if max == 0 {
+            similarity = 0.0;
+            name = "".to_string();
+        }
+        else {
+            similarity = max.to_f64().unwrap() / query.len().to_f64().unwrap() *100.0;
+            
+            let binding = db.nth(best_idx.0).unwrap().unwrap();
+            let seq = &binding.seq()[best_idx.1..best_idx.1 + self.query.seq().len()];
+            name = binding.id().to_string();
+            for &val in seq.iter() { 
+                word.push(val);
+        }
         }
 
         Summary {
             best_idx: best_idx,
             score: max,
-            seq: word
+            seq: word,
+            query: query,
+            similarity: similarity,
+            id: name
         }
     }
 }
@@ -135,5 +149,37 @@ impl Searcher {
 pub struct Summary {
     pub best_idx: (usize, usize),
     pub score: u32,
-    pub seq: Vec<u8>
+    pub seq: Vec<u8>,
+    pub similarity: f64,
+    pub query: Vec<u8>,
+    pub id: String
+}
+
+impl fmt::Display for Summary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
+        writeln!(f, "Best match found in record: {} at index: {}", self.best_idx.0, self.best_idx.1)?;
+        writeln!(f, "Score: {}", self.score)?;
+        writeln!(f, "\nQuery: \n")?;
+        for char in self.query.iter() {
+            write!(f, "{}", convert_to_ascii(char))?;
+        }
+        writeln!(f, "\n\nBest match: \n")?;
+        for char in self.seq.iter() {
+            write!(f, "{}", convert_to_ascii(char))?;
+        }
+        writeln!(f, "\n\nSimilarity: {}%", self.similarity)?;
+
+        writeln!(f, "\nID: {}", self.id)
+    }
+}
+
+fn convert_to_ascii(index: &u8) -> String {
+    match index {
+        65 => "A".into(),
+        67 => "C".into(),
+        71 => "G".into(),
+        84 => "T".into(),
+        _ => "?".into(),
+    }
 }
