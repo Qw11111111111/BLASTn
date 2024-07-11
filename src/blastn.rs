@@ -10,7 +10,7 @@ use rand::{thread_rng, Rng};
 
 use bio::io::fasta::{Record, Records};
 
-fn get_score(seq1: Vec<u8>, seq2: &[u8]) -> u32 {
+fn get_score(seq1: &Vec<u8>, seq2: &[u8]) -> u32 {
     seq2.iter().enumerate().map(|(i, &item)| {
         if seq1[i] == item {
             1
@@ -79,14 +79,11 @@ impl Searcher {
                 let num2 = num.clone();
                 let mut hits: HashMap<usize, u32> = HashMap::new();
                 for i in word_start..rec.seq().len() + word_len - word_start - next_word.len() {
-                    let score = get_score(word.clone(), &rec.seq()[i..i + word_len]);
+                    let mut score = get_score(&word, &rec.seq()[i..i + word_len]);
                     if score >= threshhold {
+                        score = get_score(&next_word, &rec.seq()[i - word_start..i + &next_word.len() - word_start]);
                         add_to_hits(&mut hits, score, i);
                     }
-                }
-                println!("thread {num2} finished seeding");
-                for (index, score) in hits.iter_mut() {
-                    *score = get_score(next_word.clone(), &rec.seq()[index - word_start..index + &next_word.len() - word_start])
                 }
                 println!("thread {num2} done");
                 hits
