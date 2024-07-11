@@ -2,7 +2,6 @@ use std::{
     collections::HashMap, fmt, fs::File, io::BufReader, sync::{Arc, Mutex, RwLock}, thread
 };
 
-use clap::builder::Str;
 use num::ToPrimitive;
 
 use rand::{thread_rng, Rng};
@@ -32,7 +31,7 @@ pub struct Searcher {
     best_hits: HashMap<usize, HashMap<usize, u32>>,
     query: Arc<Record>,
     db: Arc<Mutex<Records<BufReader<File>>>>,
-    word: Arc<RwLock<Vec<u8>>>
+    word: Arc<RwLock<Vec<u8>>>,
 }
 
 impl Searcher {
@@ -68,14 +67,14 @@ impl Searcher {
         let word2 = self.set_query_as_word();
 
         let mut database = self.db.try_lock().unwrap();
-        let mut num = 0;
+        //let mut num = 0;
 
         while let Some(record) = database.next() {
             let rec = record.unwrap();
             let word = self.word.read().unwrap().clone();
             let next_word = word2.clone();
             handles.push(thread::spawn(move || {
-                let num2 = num.clone();
+                //let num2 = num;
                 let mut hits: HashMap<usize, u32> = HashMap::new();
                 for i in word_start..rec.seq().len() + word_len - word_start - next_word.len() {
                     let mut score = get_score(&word, &rec.seq()[i..i + word_len]);
@@ -84,10 +83,10 @@ impl Searcher {
                         add_to_hits(&mut hits, score, i);
                     }
                 }
-                println!("thread {num2} done");
+                //println!("thread {num2} done");
                 hits
             }));
-            num += 1;
+            //num += 1;
         }
         for (i, handle) in handles.into_iter().enumerate() {
             let hits = handle.join().unwrap();
@@ -158,7 +157,7 @@ pub struct Summary {
 impl fmt::Display for Summary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
-        writeln!(f, "Best match found in record: {} at index: {}", self.best_idx.0, self.best_idx.1)?;
+        writeln!(f, "Best match found in record {} ({}) at index {}", self.id, self.best_idx.0, self.best_idx.1)?;
         writeln!(f, "Score: {}", self.score)?;
         writeln!(f, "\nQuery: \n")?;
         for char in self.query.iter() {
@@ -168,9 +167,7 @@ impl fmt::Display for Summary {
         for char in self.seq.iter() {
             write!(f, "{}", convert_to_ascii(char))?;
         }
-        writeln!(f, "\n\nSimilarity: {}%", self.similarity)?;
-
-        writeln!(f, "\nID: {}", self.id)
+        writeln!(f, "\n\nSimilarity: {}%", self.similarity)
     }
 }
 

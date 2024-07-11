@@ -17,13 +17,19 @@ fn main() -> Result<(), String> {
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
     
     let mut searcher = Searcher::new(query.clone(), db, args.threshhold, args.length);
+
+    
     let now = Instant::now();
+    
     searcher.align();
     
-    println!("Search finished after {:?}s", now.elapsed());
+    if args.verbose {
+        println!("Search finished after {:#?}\n", now.elapsed());
+    }
 
     let db_reader = Reader::from_file(args.db_file).unwrap();
     let summary = searcher.summary(&mut db_reader.records());
     println!("{}", summary);
+
     Ok(())
 }

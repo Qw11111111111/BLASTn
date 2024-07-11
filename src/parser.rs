@@ -18,4 +18,8 @@ pub struct Args {
     /// length of word durign seeding
     #[arg(short, long, default_value = "7")]
     pub length: usize,
+
+    /// Additional printout during run time
+    #[arg(short, long, default_value = "false")]
+    pub verbose: bool,
 }
