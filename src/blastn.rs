@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, fmt, fs::File, io::{BufReader, Read}, sync::{Arc, Mutex}, thread
+    collections::HashMap, fmt, fs::File, io::BufReader, sync::{Arc, Mutex}, thread
 };
 
 use num::ToPrimitive;
@@ -10,11 +10,11 @@ use bio::io::fasta::{Record, Records};
 
 fn get_score(seq1: &[u8], seq2: &[u8]) -> u32 {
     let mut n = 0;
-    let _ = seq1.iter()
-        .zip(seq2)
-        .map(|(s1, s2)| if s1 == s2 {
-            n += 1
-        });
+    for (i, &item) in seq1.iter().enumerate() {
+        if item == seq2[i] {
+            n += 1;
+        }
+    }
     n
 }
 
