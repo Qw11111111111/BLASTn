@@ -155,7 +155,7 @@ pub struct Summary {
 impl fmt::Display for Summary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
-        writeln!(f, "Best match found in record {} [{} at index {}", self.id, self.best_idx.0, self.best_idx.1)?;
+        writeln!(f, "Best match found in record {} [{}] at index {}", self.id, self.best_idx.0, self.best_idx.1)?;
         writeln!(f, "Score: {}", self.score)?;
         writeln!(f, "\nQuery: \n")?;
         for char in self.query.iter() {
