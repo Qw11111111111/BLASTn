@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, fmt, fs::File, io::BufReader, sync::{Arc, Mutex, RwLock}, thread
+    collections::HashMap, fmt, fs::File, io::{BufReader, Read}, sync::{Arc, Mutex}, thread
 };
 
 use num::ToPrimitive;
@@ -8,15 +8,14 @@ use rand::{thread_rng, Rng};
 
 use bio::io::fasta::{Record, Records};
 
-fn get_score(seq1: &Vec<u8>, seq2: &[u8]) -> u32 {
-    seq2.iter().enumerate().map(|(i, &item)| {
-        if seq1[i] == item {
-            1
-        }
-        else {
-            0
-        }
-    }).sum()
+fn get_score(seq1: &[u8], seq2: &[u8]) -> u32 {
+    let mut n = 0;
+    let _ = seq1.iter()
+        .zip(seq2)
+        .map(|(s1, s2)| if s1 == s2 {
+            n += 1
+        });
+    n
 }
 
 fn add_to_hits(hits: &mut HashMap<usize, u32>, score: u32, index: usize) {
@@ -31,7 +30,7 @@ pub struct Searcher {
     best_hits: HashMap<usize, HashMap<usize, u32>>,
     query: Arc<Record>,
     db: Arc<Mutex<Records<BufReader<File>>>>,
-    word: Arc<RwLock<Vec<u8>>>,
+    word: Arc<Vec<u8>>,
 }
 
 impl Searcher {
@@ -44,7 +43,7 @@ impl Searcher {
             best_hits: HashMap::new(),
             query: query,
             db: db,
-            word: Arc::from(RwLock::from(vec![])),
+            word: Arc::from(vec![]),
         }
     }
 
@@ -52,10 +51,11 @@ impl Searcher {
         let mut rng = thread_rng();
         let length = self.query.seq().len();
         self.word_start = rng.gen_range(0..length - self.word_len);
-        let mut word = self.word.write().unwrap();
+        let mut word =  vec![];
         for i in self.word_start..self.word_len + self.word_start{
             word.push(self.query.seq()[i]);
         }
+        self.word = Arc::from(word);
     }   
 
     pub fn align(&mut self) {
@@ -64,29 +64,27 @@ impl Searcher {
         let word_start = self.word_start;
         let word_len = self.word_len;
         let threshhold = self.threshhold;
-        let word2 = self.set_query_as_word();
+        let word2: Arc<[u8]> = Arc::from(self.set_query_as_word());
 
         let mut database = self.db.try_lock().unwrap();
-        //let mut num = 0;
 
         while let Some(record) = database.next() {
             let rec = record.unwrap();
-            let word = self.word.read().unwrap().clone();
+            let word = self.word.clone();
             let next_word = word2.clone();
             handles.push(thread::spawn(move || {
-                //let num2 = num;
                 let mut hits: HashMap<usize, u32> = HashMap::new();
                 for i in word_start..rec.seq().len() + word_len - word_start - next_word.len() {
                     let mut score = get_score(&word, &rec.seq()[i..i + word_len]);
                     if score >= threshhold {
                         score = get_score(&next_word, &rec.seq()[i - word_start..i + &next_word.len() - word_start]);
+                        //score += get_score(&next_word, &rec.seq()[i - word_start..i]);
+                        //score += get_score(&next_word[word_start + word_len..], &rec.seq()[i + word_len..i - word_start + &next_word.len()]); this is faster for very long word lengths or very low threshholds
                         add_to_hits(&mut hits, score, i);
                     }
                 }
-                //println!("thread {num2} done");
                 hits
             }));
-            //num += 1;
         }
         for (i, handle) in handles.into_iter().enumerate() {
             let hits = handle.join().unwrap();
@@ -157,7 +155,7 @@ pub struct Summary {
 impl fmt::Display for Summary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
-        writeln!(f, "Best match found in record {} ({}) at index {}", self.id, self.best_idx.0, self.best_idx.1)?;
+        writeln!(f, "Best match found in record {} [{} at index {}", self.id, self.best_idx.0, self.best_idx.1)?;
         writeln!(f, "Score: {}", self.score)?;
         writeln!(f, "\nQuery: \n")?;
         for char in self.query.iter() {
