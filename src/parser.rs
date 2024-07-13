@@ -13,7 +13,7 @@ pub struct Args {
 
     /// threshhold for seeding
     #[arg(short, long, default_value = "7")]
-    pub threshhold: u32,
+    pub threshhold: usize,
 
     /// length of word durign seeding
     #[arg(short, long, default_value = "7")]
@@ -22,4 +22,12 @@ pub struct Args {
     /// Additional printout during run time
     #[arg(short, long, default_value = "false")]
     pub verbose: bool,
+
+    /// benchmark the code
+    #[arg(short, long, default_value = "false")]
+    pub benchmark: bool,
+
+    /// retries for benchmark
+    #[arg(short, long, default_value = "100")]
+    pub retries: usize
 }
