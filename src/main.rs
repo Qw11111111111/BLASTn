@@ -5,26 +5,32 @@ mod benchmark;
 use clap::Parser;
 use bio::io::fasta::Reader;
 use num::ToPrimitive;
-use std::{sync::{Arc, Mutex}, time::Instant};
+use std::{io::{stdin, Read}, sync::{Arc, Mutex}, time::Instant};
 
 use blastn::Searcher;
 use parser::Args;
-use crate::benchmark::benchmark;
+use benchmark::benchmark;
 
 fn main() -> Result<(), String> {
     //TODO: proper Error handling
     let args = Args::parse();
 
     if args.benchmark {
-        let (t, best_hits) = benchmark(args.retries, &args.query_file, &args.db_file, &args.threshhold, &args.length);
-        println!("\ntotal time: {:?}s", t);
-        println!("time per run: {:?}s\n", t / args.retries.to_f64().unwrap());
-        println!("best hits: ");
-        for item in best_hits.iter() {
-            println!("Record: [{0}] | Index: [{1}] | Score: {2}", item.0.0, item.0.1,item.1);
-
+        let best_hits = benchmark(args.retries, &args.query_file, &args.db_file, &args.threshhold, &args.length);
+        
+        let buf = &mut [0, 0];
+        loop {
+            println!("{}", best_hits);
+            println!("print a sequence [index]/[N]");
+            let _  = stdin().read(buf);
+            
+            if buf[0] < 58 && buf[0] > 47 {
+                best_hits.print(get_idx_from_ascii(&buf[0]));
+            }
+            else {
+                break;
+            }
         }
-
         return Ok(());
     }
 
@@ -49,4 +55,8 @@ fn main() -> Result<(), String> {
     println!("{}", summary);
 
     Ok(())
+}
+
+fn get_idx_from_ascii(num: &u8) -> usize {
+    num.to_usize().unwrap() - 48
 }

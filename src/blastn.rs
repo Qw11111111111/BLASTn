@@ -143,6 +143,7 @@ impl Searcher {
     }
 }
 
+#[derive (Debug, PartialEq)]
 pub struct Summary {
     pub best_idx: (usize, usize),
     pub score: usize,
