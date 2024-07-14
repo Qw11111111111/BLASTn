@@ -18,12 +18,12 @@ fn main() -> Result<(), String> {
     if args.benchmark {
         let best_hits = benchmark(args.retries, &args.query_file, &args.db_file, &args.threshhold, &args.length);
         
-        let buf = &mut [0, 0];
+        let mut buf = [0, 0];
         loop {
             println!("{}", best_hits);
             println!("print a sequence [index]/[N]");
-            let _  = stdin().read(buf);
-            
+            let _  = stdin().read(&mut buf);
+
             if buf[0] < 58 && buf[0] > 47 {
                 best_hits.print(get_idx_from_ascii(&buf[0]));
             }
@@ -31,6 +31,7 @@ fn main() -> Result<(), String> {
                 break;
             }
         }
+        
         return Ok(());
     }
 

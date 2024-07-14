@@ -55,8 +55,8 @@ impl TopTen {
                 let next_key = self.keys[j + 1];
                 let next_item = &self.hits[&next_key].score;
                 if next_item > item {
-                    self.keys[i + 1] = key;
-                    self.keys[i] = next_key;
+                    self.keys[j + 1] = key;
+                    self.keys[j] = next_key;
                 }
             }
         }
