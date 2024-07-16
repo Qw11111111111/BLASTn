@@ -24,10 +24,14 @@ pub struct Args {
     pub verbose: bool,
 
     /// benchmark the code
-    #[arg(short, long, default_value = "false")]
-    pub benchmark: bool,
+    #[arg(short, long, default_value = "100")]
+    pub n_retries: usize,
 
     /// retries for benchmark
-    #[arg(short, long, default_value = "100")]
-    pub retries: usize
+    #[arg(short, long, default_value = "false")]
+    pub recursive: bool,
+
+    /// retries for benchmark
+    #[arg(short, long, default_value = "false")]
+    pub extensive_result: bool
 }

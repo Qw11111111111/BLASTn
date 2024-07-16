@@ -5,7 +5,11 @@ mod benchmark;
 use clap::Parser;
 use bio::io::fasta::Reader;
 use num::ToPrimitive;
-use std::{io::{stdin, Read}, sync::{Arc, Mutex}, time::Instant};
+use std::{
+    io::{stdin, Read}, 
+    sync::{Arc, Mutex}, 
+    time::Instant
+};
 
 use blastn::Searcher;
 use parser::Args;
@@ -15,8 +19,13 @@ fn main() -> Result<(), String> {
     //TODO: proper Error handling
     let args = Args::parse();
 
-    if args.benchmark {
-        let best_hits = benchmark(args.retries, &args.query_file, &args.db_file, &args.threshhold, &args.length);
+    let mut t = args.threshhold;
+        if t > args.length {
+            t = args.length;
+        }
+
+    if args.recursive {
+        let best_hits = benchmark(args.n_retries, &args.query_file, &args.db_file, &t, &args.length);
         
         let mut buf = [0, 0];
         loop {
@@ -31,7 +40,6 @@ fn main() -> Result<(), String> {
                 break;
             }
         }
-        
         return Ok(());
     }
 
@@ -41,7 +49,7 @@ fn main() -> Result<(), String> {
     let db = Arc::from(Mutex::from(db_reader.records()));
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
     
-    let mut searcher = Searcher::new(query.clone(), db, args.threshhold, args.length);
+    let mut searcher = Searcher::new(query.clone(), db, t, args.length);
     
     let now = Instant::now();
     
@@ -50,10 +58,27 @@ fn main() -> Result<(), String> {
     if args.verbose {
         println!("Search finished after {:#?}\n", now.elapsed());
     }
+    if !args.extensive_result {
+        let db_reader = Reader::from_file(args.db_file).unwrap();
+        let summary = searcher.summary(&mut db_reader.records());
+        println!("{}", summary);
+    }
+    else {
+        let tt = searcher.sm(&args.db_file);
+        let mut buf = [0, 0];
+        loop {
+            println!("{}", tt);
+            println!("print a sequence [index]/[N]");
+            let _  = stdin().read(&mut buf);
 
-    let db_reader = Reader::from_file(args.db_file).unwrap();
-    let summary = searcher.summary(&mut db_reader.records());
-    println!("{}", summary);
+            if buf[0] < 58 && buf[0] > 47 {
+                tt.print(get_idx_from_ascii(&buf[0]));
+            }
+            else {
+                break;
+            }
+        }
+    }
 
     Ok(())
 }

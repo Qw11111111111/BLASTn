@@ -11,8 +11,9 @@ use num::ToPrimitive;
 
 use rand::{thread_rng, Rng};
 
-use bio::io::fasta::{Record, Records};
+use bio::io::fasta::{Record, Records, Reader};
 
+use crate::benchmark::TopTen;
 
 fn get_score(seq1: &[u8], seq2: &[u8]) -> usize {
     let mut n = 0;
@@ -65,7 +66,7 @@ impl Searcher {
         let word_start = self.word_start;
         let word_len = self.word_len;
         let threshhold = self.threshhold;
-        let word2: Arc<[u8]> = Arc::from(self.set_query_as_word());
+        let word2: Arc<[u8]> = Arc::from(self.query.seq().to_vec());
 
         let mut database = self.db.try_lock().unwrap();
 
@@ -79,7 +80,7 @@ impl Searcher {
                     let mut score = get_score(&word, &rec.seq()[i..i + word_len]);
                     if score >= threshhold {
                         score = get_score(&next_word, &rec.seq()[i - word_start..i + &next_word.len() - word_start]);
-                        //score += get_score(&next_word, &rec.seq()[i - word_start..i]);
+                        //score += get_score(&next_word[..word_start], &rec.seq()[i - word_start..i]);
                         //score += get_score(&next_word[word_start + word_len..], &rec.seq()[i + word_len..i - word_start + &next_word.len()]); //this is faster for very long word lengths or very low threshholds
                         hits.insert(i, score);
                     }
@@ -93,15 +94,8 @@ impl Searcher {
         }
     }
 
-    fn set_query_as_word(&self) -> Vec<u8> {
-        let mut word = vec![];
-        for &val in self.query.seq().iter() { 
-            word.push(val);
-        }
-        word
-    }
-
     pub fn summary(&self, db: &mut Records<BufReader<File>>) -> Summary {
+        //TODO: increase speed
         let mut max = 0;
         let mut best_idx:(usize, usize) = (0, 0);
         for (&idx, map) in self.best_hits.iter() {
@@ -113,7 +107,6 @@ impl Searcher {
             }
         }
 
-        let query = self.set_query_as_word();
         let mut word: Vec<u8> = vec![];
         let similarity: f64;
         let name: String;
@@ -122,25 +115,47 @@ impl Searcher {
             name = "".to_string();
         }
         else {
-            similarity = max.to_f64().unwrap() / query.len().to_f64().unwrap() *100.0;
-            
+            similarity = max.to_f64().unwrap() / self.query.seq().len().to_f64().unwrap() * 100.0;
             let binding = db.nth(best_idx.0).unwrap().unwrap();
-            let seq = &binding.seq()[best_idx.1..best_idx.1 + self.query.seq().len()];
+            word = binding.seq()[best_idx.1..best_idx.1 + self.query.seq().len()].to_vec();
             name = binding.id().to_string();
-            for &val in seq.iter() { 
-                word.push(val);
-            }
         }
 
         Summary {
             best_idx: best_idx,
             score: max,
             seq: word,
-            query: query,
+            query: self.query.seq().to_vec(),
             similarity: similarity,
             id: name
         }
     }
+    
+    pub fn sm(&self, db: &str) -> TopTen {
+        //TODO: rework for increased efficiancy
+        let mut tt = TopTen::default();
+        let mut recs = vec![];
+        for rec in Reader::from_file(db).unwrap().records() {
+            recs.push(rec.unwrap());
+        }
+        for (i, map) in self.best_hits.iter() {
+            for (j, item) in map.iter() {
+                if tt.hits.len() == 10 {
+                    if *item < tt.min {
+                        continue;
+                    }
+                }
+                let idx = (*i, j - self.word_start);
+                let word = recs[idx.0].seq()[idx.1..idx.1 + self.query.seq().len()].to_vec();
+                let name = recs[idx.0].id().to_string();
+                let similarity = item.to_f64().unwrap() / self.query.seq().len().to_f64().unwrap() * 100.0;
+                tt.insert(Summary { best_idx: idx, score: *item, seq: word, similarity: similarity, query: self.query.seq().to_vec(), id: name })
+            }
+        }
+        tt.sort();
+        tt
+    }
+    
 }
 
 #[derive (Debug, PartialEq)]

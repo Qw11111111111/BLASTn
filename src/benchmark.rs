@@ -1,7 +1,10 @@
 use crate::blastn::{Searcher, Summary};
 
 use std::{
-    collections::HashMap, sync::{Arc, Mutex}, time::Instant, fmt
+    collections::HashMap, 
+    sync::{Arc, Mutex}, 
+    time::Instant, 
+    fmt
 };
 
 use bio::io::fasta::Reader;
@@ -32,6 +35,7 @@ pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold:
     top.time = total_time;
     top.retries = n_retries;
     top.sort();
+    top.show_time = true;
     top
 }
 
@@ -40,14 +44,15 @@ pub struct TopTen {
     pub time: f64, 
     pub hits: HashMap<usize, Summary>,
     pub keys: Vec<usize>,
-    min: usize,
+    pub min: usize,
     min_idx: usize,
-    retries: usize
+    pub retries: usize,
+    pub show_time: bool
 }
 
 impl TopTen {
 
-    fn sort(&mut self) {
+    pub fn sort(&mut self) {
         for i in 1..self.keys.len() {
             for j in 0..self.keys.len() - i {
                 let key = self.keys[j];
@@ -62,7 +67,7 @@ impl TopTen {
         }
     }
 
-    fn insert(&mut self, summary: Summary) {
+    pub fn insert(&mut self, summary: Summary) {
         for (_k, s) in self.hits.iter() {
             if &summary == s {
                 return;
@@ -83,8 +88,11 @@ impl TopTen {
             }
         }
         else {
+            if summary.score < self.min {
+                self.min = summary.score;
+            }
+            self.hits.insert(self.keys.len(), summary);
             self.keys.push(self.keys.len());
-            self.hits.insert(self.keys[self.keys.len() - 1], summary);
         }
     }
 
@@ -99,13 +107,15 @@ impl TopTen {
 
 impl fmt::Display for TopTen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "\nTotal time used: {}s", self.time)?;
-        writeln!(f, "time per run: {}s\n", self.time / self.retries.to_f64().unwrap())?;
+        if self.show_time {
+            writeln!(f, "\nTotal time used: {}s", self.time)?;
+            writeln!(f, "time per run: {}s\n", self.time / self.retries.to_f64().unwrap())?;
+        }
         writeln!(f, "best hits: \n")?;
 
         for (i, key) in self.keys.iter().enumerate() {
             let s = &self.hits[key];
-            writeln!(f, "{i}: Record: {0:>5} | Idx: {1:>8} | Similarity: {2}", s.id, s.best_idx.1, s.similarity)?;
+            writeln!(f, "{i}: Record: {0:>15} | Idx: {1:>8} | Similarity: {2}", s.id, s.best_idx.1, s.similarity)?;
         };
         write!(f, "\n")
     }
