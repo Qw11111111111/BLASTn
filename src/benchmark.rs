@@ -1,4 +1,5 @@
 use crate::blastn::{Searcher, Summary};
+use crate::dust::Dust;
 
 use std::{
     collections::HashMap, 
@@ -21,7 +22,10 @@ pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold:
         let db = Arc::from(Mutex::from(db_reader.records()));
         let query = Arc::from(query_reader.records().next().unwrap().unwrap());
         
-        let mut searcher = Searcher::new(query.clone(), db, threshhold.clone(), word_len.clone());
+        let mut dust = Dust::new(20, 2.0, query.seq().to_vec());
+        let masked = dust.mask_regions();
+
+        let mut searcher = Searcher::new(query.clone(), db, threshhold.clone(), word_len.clone(), masked);
     
         let now = Instant::now();
         
@@ -55,13 +59,10 @@ impl TopTen {
     pub fn sort(&mut self) {
         for i in 1..self.keys.len() {
             for j in 0..self.keys.len() - i {
-                let key = self.keys[j];
-                let item = &self.hits[&key].score;
-                let next_key = self.keys[j + 1];
-                let next_item = &self.hits[&next_key].score;
+                let item = &self.hits[&self.keys[j]].score;
+                let next_item = &self.hits[&self.keys[j + 1]].score;
                 if next_item > item {
-                    self.keys[j + 1] = key;
-                    self.keys[j] = next_key;
+                    (self.keys[j], self.keys[j + 1]) = (self.keys[j + 1], self.keys[j]);
                 }
             }
         }

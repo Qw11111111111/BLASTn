@@ -33,11 +33,12 @@ pub struct Searcher {
     query: Arc<Record>,
     db: Arc<Mutex<Records<BufReader<File>>>>,
     word: Arc<Vec<u8>>,
+    masked: Vec<u8>
 }
 
 impl Searcher {
 
-    pub fn new(query: Arc<Record>, db: Arc<Mutex<Records<BufReader<File>>>>, threshhold: usize, word_len: usize) -> Self {
+    pub fn new(query: Arc<Record>, db: Arc<Mutex<Records<BufReader<File>>>>, threshhold: usize, word_len: usize, masked: Vec<u8>) -> Self {
         Self {
             threshhold: threshhold,
             word_len: word_len,
@@ -46,18 +47,29 @@ impl Searcher {
             query: query,
             db: db,
             word: Arc::default(),
+            masked: masked
         }
     }
 
     fn get_word(&mut self) {
+        //TODO: make a proper initialization
         let mut rng = thread_rng();
-        let length = self.query.seq().len();
-        self.word_start = rng.gen_range(0..length - self.word_len);
-        let mut word =  vec![];
-        for i in self.word_start..self.word_len + self.word_start{
-            word.push(self.query.seq()[i]);
+        loop {
+            let length = self.masked.len();
+            self.word_start = rng.gen_range(0..length - self.word_len);
+            let mut word = Vec::new();
+            for i in self.word_start..self.word_start + self.word_len {
+                let n = self.masked[i];
+                if n == 78 {
+                    break;
+                }
+                word.push(n);
+            }
+            if word.len() == self.word_len {
+                self.word = Arc::from(word);
+                return;
+            }
         }
-        self.word = Arc::from(word);
     }   
 
     pub fn align(&mut self) {
@@ -67,7 +79,7 @@ impl Searcher {
         let word_len = self.word_len;
         let threshhold = self.threshhold;
         let word2: Arc<[u8]> = Arc::from(self.query.seq().to_vec());
-
+        //let word2: Arc<[u8]> = Arc::from(self.masked.clone());
         let mut database = self.db.try_lock().unwrap();
 
         while let Some(record) = database.next() {
@@ -185,12 +197,13 @@ impl fmt::Display for Summary {
     }
 }
 
-fn convert_to_ascii(index: &u8) -> String {
+pub fn convert_to_ascii(index: &u8) -> String {
     match index {
         65 => "A".into(),
         67 => "C".into(),
         71 => "G".into(),
         84 => "T".into(),
+        78 => "N".into(),
         _ => "?".into(),
     }
 }

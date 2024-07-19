@@ -1,5 +1,6 @@
 pub mod blastn;
 pub mod parser;
+pub mod dust;
 mod benchmark;
 
 use clap::Parser;
@@ -11,12 +12,14 @@ use std::{
     time::Instant
 };
 
-use blastn::Searcher;
+use blastn::{Searcher, convert_to_ascii};
 use parser::Args;
 use benchmark::benchmark;
+use dust::Dust;
 
 fn main() -> Result<(), String> {
     //TODO: proper Error handling
+    //TODO: Rewrite the search to match the procedure outlined here: https://en.wikipedia.org/wiki/BLAST_(biotechnology), as the current implementation is rather naive.
     let args = Args::parse();
 
     let mut t = args.threshhold;
@@ -24,8 +27,8 @@ fn main() -> Result<(), String> {
             t = args.length;
         }
 
-    if args.recursive {
-        let best_hits = benchmark(args.n_retries, &args.query_file, &args.db_file, &t, &args.length);
+    if args.recursive > 1{
+        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length);
         
         let mut buf = [0, 0];
         loop {
@@ -48,17 +51,24 @@ fn main() -> Result<(), String> {
     
     let db = Arc::from(Mutex::from(db_reader.records()));
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
-    
-    let mut searcher = Searcher::new(query.clone(), db, t, args.length);
-    
+
+    //TODO: CLI acces to window_size and threshold.
+    let mut dust = Dust::new(64, 0.8, query.seq().to_vec());
+    let res = dust.mask_regions();
+    let mut searcher = Searcher::new(query.clone(), db, t, args.length, res.clone());
     let now = Instant::now();
-    
     searcher.align();
     
     if args.verbose {
         println!("Search finished after {:#?}\n", now.elapsed());
+        println!("Masked Query: ");
+        for i in res.iter() {
+            print!("{}", convert_to_ascii(i));
+        }
+        println!();
     }
-    if !args.extensive_result {
+
+    if !args.single_result {
         let db_reader = Reader::from_file(args.db_file).unwrap();
         let summary = searcher.summary(&mut db_reader.records());
         println!("{}", summary);
