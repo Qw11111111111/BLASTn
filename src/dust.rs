@@ -31,9 +31,9 @@ impl Dust {
                 wstart = 0;
             }
             else {
-                wstart = i - self.window_size + 1;
+                wstart = i + 1 - self.window_size;
             }
-            let wend = std::cmp::min(self.query.len() - 1, i);
+            //let wend = std::cmp::min(self.query.len() - 1, i);
             if i < self.query.len() {
                 let t = self.get_triplet(&self.query, i - 2);
                 current_word.push_back(t);
@@ -53,7 +53,7 @@ impl Dust {
                         finish = f;
                     }
                 }
-                res.push((start + wstart, finish + wend));
+                res.push((start + wstart, finish + wstart));
             }
         }
         self.get_masked_seq(&res)

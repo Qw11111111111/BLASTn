@@ -1,18 +1,20 @@
 pub mod blastn;
 pub mod parser;
 pub mod dust;
+pub mod process_db;
 mod benchmark;
 
 use clap::Parser;
 use bio::io::fasta::Reader;
 use num::ToPrimitive;
+
 use std::{
     io::{stdin, Read}, 
     sync::{Arc, Mutex}, 
     time::Instant
 };
 
-use blastn::{Searcher, convert_to_ascii};
+use blastn::{convert_to_ascii, Searcher};
 use parser::Args;
 use benchmark::benchmark;
 use dust::Dust;
@@ -22,7 +24,7 @@ fn main() -> Result<(), String> {
     //TODO: Rewrite the search to match the procedure outlined here: https://en.wikipedia.org/wiki/BLAST_(biotechnology), as the current implementation is rather naive.
     let args = Args::parse();
 
-    let mut t = args.threshhold;
+    let mut t = args.threshold;
         if t > args.length {
             t = args.length;
         }
@@ -52,9 +54,15 @@ fn main() -> Result<(), String> {
     let db = Arc::from(Mutex::from(db_reader.records()));
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
 
-    //TODO: CLI acces to window_size and threshold.
-    let mut dust = Dust::new(64, 0.8, query.seq().to_vec());
-    let res = dust.mask_regions();
+    let res: Vec<u8>;
+    if args.mask_low_complexity {
+        let mut dust = Dust::new(64, args.masking_threshold, query.seq().to_vec());
+        res = dust.mask_regions();
+    }
+    else {
+        res = query.seq().to_vec();
+    }
+
     let mut searcher = Searcher::new(query.clone(), db, t, args.length, res.clone());
     let now = Instant::now();
     searcher.align();
