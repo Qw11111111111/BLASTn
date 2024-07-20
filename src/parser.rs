@@ -11,9 +11,9 @@ pub struct Args {
     #[arg(short, long)]
     pub db_file: String,
 
-    /// threshhold for seeding
+    /// threshold for seeding
     #[arg(short, long, default_value = "11")]
-    pub threshhold: usize,
+    pub threshold: usize,
 
     /// length of word durign seeding
     #[arg(short, long, default_value = "11")]
@@ -27,7 +27,15 @@ pub struct Args {
     #[arg(short, long, default_value = "1")]
     pub recursive: usize,
 
-    /// retries for benchmark
+    /// only show best match
     #[arg(short, long, default_value = "true")]
-    pub single_result: bool
+    pub single_result: bool,
+
+    /// mask low complexity regions with DUST
+    #[arg(short, long, default_value = "true")]
+    pub mask_low_complexity: bool,
+
+    /// Threshold for a sequence to be masked
+    #[arg(long, default_value = "1.0")]
+    pub masking_threshold: f64,   
 }
