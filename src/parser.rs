@@ -37,5 +37,9 @@ pub struct Args {
 
     /// Threshold for a sequence to be masked
     #[arg(long, default_value = "1.0")]
-    pub masking_threshold: f64,   
+    pub masking_threshold: f64,
+
+    /// Threshold for a sequence to be masked
+    #[arg(long, default_value = "false")]
+    pub experimental: bool,   
 }

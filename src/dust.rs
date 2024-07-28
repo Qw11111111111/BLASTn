@@ -25,13 +25,13 @@ impl Dust {
         let mut current_word: VecDeque<usize> = VecDeque::new();
         let mut res : Vec<(usize, usize)> = Vec::new();
 
-        for i in 2..self.query.len() + self.window_size - 4 {
+        for i in 2..self.query.len() + self.window_size - 3 {
             let wstart: usize;
-            if i + 1 < self.window_size {
+            if i < self.window_size {
                 wstart = 0;
             }
             else {
-                wstart = i + 1 - self.window_size;
+                wstart = i - self.window_size;
             }
             //let wend = std::cmp::min(self.query.len() - 1, i);
             if i < self.query.len() {

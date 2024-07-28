@@ -11,7 +11,7 @@ use std::{
 use bio::io::fasta::Reader;
 use num::ToPrimitive;
 
-pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold: &usize, word_len: &usize) -> TopTen {
+pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold: &usize, word_len: &usize, m_threshold: f64, mask: bool) -> TopTen {
     let mut total_time = 0.0;
     let mut top = TopTen::default();
     
@@ -21,9 +21,14 @@ pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold:
         
         let db = Arc::from(Mutex::from(db_reader.records()));
         let query = Arc::from(query_reader.records().next().unwrap().unwrap());
-        
-        let mut dust = Dust::new(20, 2.0, query.seq().to_vec());
-        let masked = dust.mask_regions();
+        let masked: Vec<u8>;
+        if mask {
+            let mut dust = Dust::new(78, m_threshold, query.seq().to_vec());
+            masked = dust.mask_regions();
+        }
+        else {
+            masked = query.seq().to_vec();
+        }
 
         let mut searcher = Searcher::new(query.clone(), db, threshhold.clone(), word_len.clone(), masked);
     
@@ -51,7 +56,9 @@ pub struct TopTen {
     pub min: usize,
     min_idx: usize,
     pub retries: usize,
-    pub show_time: bool
+    pub show_time: bool,
+    pub hits_found: Vec<usize>,
+    pub no_result: usize
 }
 
 impl TopTen {
@@ -69,8 +76,14 @@ impl TopTen {
     }
 
     pub fn insert(&mut self, summary: Summary) {
-        for (_k, s) in self.hits.iter() {
-            if &summary == s {
+        if summary.similarity == 0.0 {
+            self.no_result += 1;
+            return;
+        }
+
+        for key in self.keys.iter() {
+            if self.hits[key] == summary {
+                self.hits_found[*key] += 1;
                 return;
             }
         }
@@ -79,7 +92,8 @@ impl TopTen {
                 return;
             }
             self.hits.insert(self.min_idx, summary);
-            let mut new_min = self.hits[&0].query.len();
+            self.hits_found[self.min_idx] = 1;
+            let mut new_min = self.hits[&0].query.len(); // reference value
             for (i, key) in self.keys.iter().enumerate() {
                 let s = self.hits[key].score;
                 if s < new_min {
@@ -91,9 +105,11 @@ impl TopTen {
         else {
             if summary.score < self.min {
                 self.min = summary.score;
+                self.min_idx = self.keys.len();
             }
             self.hits.insert(self.keys.len(), summary);
             self.keys.push(self.keys.len());
+            self.hits_found.push(1);
         }
     }
 
@@ -112,12 +128,19 @@ impl fmt::Display for TopTen {
             writeln!(f, "\nTotal time used: {}s", self.time)?;
             writeln!(f, "time per run: {}s\n", self.time / self.retries.to_f64().unwrap())?;
         }
-        writeln!(f, "best hits: \n")?;
+        writeln!(f, "\nbest hits: \n")?;
 
         for (i, key) in self.keys.iter().enumerate() {
             let s = &self.hits[key];
-            writeln!(f, "{i}: Record: {0:>15} | Idx: {1:>8} | Similarity: {2}", s.id, s.best_idx.1, s.similarity)?;
+            writeln!(f, "{i}: Record: {0:>15} | Idx: {1:>8} | Times found: {3:>5} | Similarity: {2} ", s.id, s.best_idx.1, s.similarity, self.hits_found[*key])?;
         };
+
+        if self.keys.len() == 0 {
+            writeln!(f, "No Match found")?;
+        }
+
+        writeln!(f, "\n{} search(es) produced no result", self.no_result)?;
+
         write!(f, "\n")
     }
 }

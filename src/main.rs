@@ -7,17 +7,24 @@ mod benchmark;
 use clap::Parser;
 use bio::io::fasta::Reader;
 use num::ToPrimitive;
-
+use process_db::get_kmers;
 use std::{
     io::{stdin, Read}, 
     sync::{Arc, Mutex}, 
-    time::Instant
+    time::Instant,
+    collections::{HashMap, BTreeMap}
 };
 
-use blastn::{convert_to_ascii, Searcher};
+use blastn::{convert_to_ascii, BLASTn, Searcher};
 use parser::Args;
 use benchmark::benchmark;
 use dust::Dust;
+
+fn get_db(path: &str, k: usize) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
+    let db_reader = Reader::from_file(path).unwrap();
+    let db = db_reader.records();
+    get_kmers(k, db)
+}
 
 fn main() -> Result<(), String> {
     //TODO: proper Error handling
@@ -30,7 +37,7 @@ fn main() -> Result<(), String> {
         }
 
     if args.recursive > 1{
-        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length);
+        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, args.mask_low_complexity);
         
         let mut buf = [0, 0];
         loop {
@@ -49,11 +56,38 @@ fn main() -> Result<(), String> {
     }
 
     let query_reader = Reader::from_file(&args.query_file).unwrap();
-    let db_reader = Reader::from_file(&args.db_file).unwrap();
-    
-    let db = Arc::from(Mutex::from(db_reader.records()));
     let query = Arc::from(query_reader.records().next().unwrap().unwrap());
 
+    if args.experimental {
+        let mut dust = Dust::new(64, 0.8, query.seq().to_vec());
+        let res = dust.mask_regions();
+        
+        let now = Instant::now();
+        let db_kmers = get_db(&args.db_file, args.length);
+        println!("\n{:#?} db built", now.elapsed());
+        let db_reader = Reader::from_file(&args.db_file).unwrap();
+        let mut blastn = BLASTn::new(db_reader.records(), Arc::from(res), args.threshold, args.threshold, args.length);
+
+        let now = Instant::now();
+
+        let result = blastn.align(Arc::from(db_kmers));
+
+        println!("\n{:#?}, search finished", now.elapsed());
+        println!("len of q: {}", query.seq().len());
+
+        for res in result.iter() {
+            println!("REC: {}",res.0);
+            println!("len: {}", res.1.len());
+            println!("best idx: {}, len: {}", res.1[res.1.len() - 1].start_stop.0, res.1[res.1.len() - 1].start_stop.1 - res.1[res.1.len() - 1].start_stop.0);
+            println!();
+        }
+
+        return Ok(());
+    }
+
+    let db_reader = Reader::from_file(&args.db_file).unwrap();
+    let db = Arc::from(Mutex::from(db_reader.records()));
+    
     let res: Vec<u8>;
     if args.mask_low_complexity {
         let mut dust = Dust::new(64, args.masking_threshold, query.seq().to_vec());
@@ -68,7 +102,7 @@ fn main() -> Result<(), String> {
     searcher.align();
     
     if args.verbose {
-        println!("Search finished after {:#?}\n", now.elapsed());
+        println!("\nSearch finished after {:#?}\n", now.elapsed());
         println!("Masked Query: ");
         for i in res.iter() {
             print!("{}", convert_to_ascii(i));
@@ -76,7 +110,7 @@ fn main() -> Result<(), String> {
         println!();
     }
 
-    if !args.single_result {
+    if args.single_result {
         let db_reader = Reader::from_file(args.db_file).unwrap();
         let summary = searcher.summary(&mut db_reader.records());
         println!("{}", summary);
