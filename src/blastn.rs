@@ -10,11 +10,11 @@ use bio::io::fasta::{Record, Records, Reader};
 
 use crate::benchmark::TopTen;
 
-
+/*
 fn get_hsps(q: Arc<HashMap<u64, Vec<usize>>>, db: &BTreeMap<u64, Vec<usize>>) {
 
 }
-
+*/
 fn extend_match(q: &[u8], db: &[u8], t: usize, rev: bool) -> (usize, u64) {
     if rev {
         let mut s = 0;
@@ -50,16 +50,16 @@ fn extend_match(q: &[u8], db: &[u8], t: usize, rev: bool) -> (usize, u64) {
 
 #[derive (Clone, Debug)]
 pub struct Match {
-    wstart: usize,
-    idx_in_db: usize,
-    score: u64,
-    similarity: f64,
+    pub wstart: usize,
+    pub idx_in_db: usize,
+    pub score: u64,
+    pub similarity: f64,
     pub start_stop: (usize, usize)
 }
 
 pub struct BLASTn {
     masked_query: Arc<Vec<u8>>,
-    hssp_threshold: usize,
+    //hssp_threshold: usize,
     elongation_threshold: usize,
     k: usize,
     db: Records<BufReader<File>>
@@ -67,10 +67,10 @@ pub struct BLASTn {
 
 impl BLASTn {
     
-    pub fn new(db: Records<BufReader<File>>, masked_query: Arc<Vec<u8>>, hssp_threshold: usize, elongation_threshold: usize, k: usize) -> Self {
+    pub fn new(db: Records<BufReader<File>>, masked_query: Arc<Vec<u8>>, _hssp_threshold: usize, elongation_threshold: usize, k: usize) -> Self {
         Self {
             masked_query: masked_query,
-            hssp_threshold: hssp_threshold,
+            //hssp_threshold: hssp_threshold,
             elongation_threshold: elongation_threshold,
             k: k,
             db: db
@@ -137,13 +137,14 @@ impl BLASTn {
        }
        kmers
     }
-
+    /*
     fn get_hssps(&self) -> HashMap<u64, Vec<usize>> {
         let mut kmers = HashMap::new();
 
 
         kmers
     }   
+    */
 }
 
 

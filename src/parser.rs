@@ -28,7 +28,7 @@ pub struct Args {
     pub recursive: usize,
 
     /// only show best match
-    #[arg(short, long, default_value = "true")]
+    #[arg(short, long, default_value = "false")]
     pub single_result: bool,
 
     /// mask low complexity regions with DUST
