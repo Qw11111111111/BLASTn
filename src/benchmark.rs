@@ -132,7 +132,7 @@ impl fmt::Display for TopTen {
 
         for (i, key) in self.keys.iter().enumerate() {
             let s = &self.hits[key];
-            writeln!(f, "{i}: Record: {0:>15} | Idx: {1:>8} | Times found: {3:>5} | Similarity: {2} ", s.id, s.best_idx.1, s.similarity, self.hits_found[*key])?;
+            writeln!(f, "{i}: Record: {0:>15} | Idx: {1:>8} | Times found: {3:>5} | Similarity to masked query: {2} ", s.id, s.best_idx.1, s.similarity, self.hits_found[*key])?;
         };
 
         if self.keys.len() == 0 {

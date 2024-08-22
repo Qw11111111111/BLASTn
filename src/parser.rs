@@ -31,8 +31,8 @@ pub struct Args {
     #[arg(short, long, default_value = "false")]
     pub single_result: bool,
 
-    /// mask low complexity regions with DUST
-    #[arg(short, long, default_value = "true")]
+    /// do not mask low complexity regions with DUST
+    #[arg(short, long, default_value = "false")]
     pub mask_low_complexity: bool,
 
     /// Threshold for a sequence to be masked

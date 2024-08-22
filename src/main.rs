@@ -89,7 +89,7 @@ fn main() -> Result<(), String> {
     let db = Arc::from(Mutex::from(db_reader.records()));
     
     let res: Vec<u8>;
-    if args.mask_low_complexity {
+    if !args.mask_low_complexity {
         let mut dust = Dust::new(64, args.masking_threshold, query.seq().to_vec());
         res = dust.mask_regions();
     }

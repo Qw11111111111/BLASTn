@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap}, fmt, fs::File, io::BufReader, sync::{Arc, Mutex}, thread  
+    cmp::max, collections::{BTreeMap, HashMap}, fmt, fs::File, io::BufReader, sync::{Arc, Mutex}, thread
 };
 
 use num::ToPrimitive;
@@ -146,6 +146,9 @@ impl BLASTn {
 fn get_score(seq1: &[u8], seq2: &[u8]) -> usize {
     let mut n = 0;
     for (i, &item) in seq1.iter().enumerate() {
+        if item == 78 {
+            continue;
+        }
         if item == seq2[i] {
             n += 1;
         }
@@ -221,35 +224,44 @@ impl Searcher {
 
     pub fn align(&mut self) -> Result<(), String> {
         self.get_word()?;
-        let mut handles = vec![];
+        let mut handles = Vec::default();
         let word_start = self.word_start;
         let word_len = self.word_len;
         let threshold = self.threshold;
-        let word2: Arc<[u8]> = Arc::from(self.query.seq().to_vec());
-        //let word2: Arc<[u8]> = Arc::from(self.masked.clone());
+        let query: Arc<[u8]> = Arc::from(self.masked.clone());
         let mut database = self.db.try_lock().unwrap();
+        let n_batches = 20;
+        let mut current_record = 0;
 
         while let Some(record) = database.next() {
             let rec = record.unwrap();
-            let word = self.word.clone();
-            let next_word = word2.clone();
-            handles.push(thread::spawn(move || {
-                let mut hits: HashMap<usize, usize> = HashMap::default();
-                for i in word_start..rec.seq().len() + word_len - word_start - next_word.len() {
-                    let mut score = get_score(&word, &rec.seq()[i..i + word_len]);
-                    if score >= threshold {
-                        score = get_score(&next_word, &rec.seq()[i - word_start..i + &next_word.len() - word_start]);
-                        //score += get_score(&next_word[..word_start], &rec.seq()[i - word_start..i]);
-                        //score += get_score(&next_word[word_start + word_len..], &rec.seq()[i + word_len..i - word_start + &next_word.len()]); //this is faster for very long word lengths or very low threshholds
-                        hits.insert(i, score);
+            let batch_size = rec.seq().len() as i64 / n_batches;
+            for i in 0..n_batches {
+                let batch = Arc::new(Mutex::new(rec.seq()[max(0, i * batch_size - query.len() as i64) as usize..(batch_size * (i + 1)) as usize].to_vec()));
+                let word = Arc::clone(&self.word);
+                let query = Arc::clone(&query);
+                let idx_in_rec = max(i * batch_size - query.len() as i64, 0) as usize;
+                handles.push(thread::spawn(move || {
+                    let rec = batch.try_lock().unwrap();
+                    let mut hits: HashMap<usize, usize> = HashMap::default();
+                    for i in word_start..rec.len() - query.len() + word_start {
+                        let mut score = get_score(&word, &rec[i..i + word_len]);
+                        if score >= threshold {
+                            score = get_score(&query, &rec[i - word_start..i - word_start + query.len()]);
+                            hits.insert(i + idx_in_rec, score);
+                        }
                     }
-                }
-                hits
-            }));
+                    (current_record, hits)
+                }));
+            }
+            current_record += 1;
         }
-        for (i, handle) in handles.into_iter().enumerate() {
+
+        for handle in handles.into_iter() {
             let hits = handle.join().unwrap();
-            self.best_hits.insert(i, hits);
+            self.best_hits.entry(hits.0)
+                .and_modify(|e| e.extend(hits.1.clone()))
+                .or_insert(hits.1);
         }
         Ok(())
     }
@@ -344,7 +356,7 @@ impl fmt::Display for Summary {
         for char in self.seq.iter() {
             write!(f, "{}", convert_to_ascii(char))?;
         }
-        writeln!(f, "\n\nSimilarity: {}%", self.similarity)
+        writeln!(f, "\n\nSimilarity to masked query: {}%", self.similarity)
     }
 }
 
