@@ -37,7 +37,7 @@ fn main() -> Result<(), String> {
         }
 
     if args.recursive > 1{
-        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, args.mask_low_complexity);
+        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, args.mask_low_complexity)?;
         
         let mut buf = [0, 0];
         loop {
@@ -99,7 +99,14 @@ fn main() -> Result<(), String> {
 
     let mut searcher = Searcher::new(query.clone(), db, t, args.length, res.clone());
     let now = Instant::now();
-    searcher.align();
+    if searcher.align().is_err() {
+        println!("Masked Query: ");
+        for i in res.iter() {
+            print!("{}", convert_to_ascii(i));
+        }
+        println!();
+        return Ok(());
+    }
     
     if args.verbose {
         println!("\nSearch finished after {:#?}\n", now.elapsed());

@@ -19,14 +19,8 @@ pub fn get_kmers(k: usize, mut db: Records<BufReader<File>>) -> HashMap<usize, B
                 let key: u64 = kmer.iter().enumerate().map(|(i, nt)| {
                     nt.to_u64().unwrap() * 4_u64.pow(i.to_u32().unwrap())
                 }).sum();
-                if kmers.contains_key(&key) {
-                    let mut new_idx = kmers[&key].clone();
-                    new_idx.push(i);
-                    kmers.insert(key,  new_idx);
-                }
-                else {
-                    kmers.insert(key, vec![i]);
-                }
+                let current = kmers.entry(key).or_insert_with(Vec::default);
+                current.push(i);
             }
             kmers
         }));

@@ -126,14 +126,8 @@ impl BLASTn {
             let key: u64 = kmer.iter().enumerate().map(|(i, nt)| {
                 nt.to_u64().unwrap() * 4_u64.pow(i.to_u32().unwrap())
             }).sum();
-            if kmers.contains_key(&key) {
-                let mut new_idx = kmers[&key].clone();
-                new_idx.push(i);
-                kmers.insert(key,  new_idx);
-            }
-            else {
-                kmers.insert(key, vec![i]);
-            }
+            let current = kmers.entry(key).or_insert_with(Vec::default);
+            current.push(i);
        }
        kmers
     }
@@ -185,12 +179,12 @@ impl Searcher {
         }
     }
 
-    fn get_word(&mut self) {
+    fn get_word(&mut self) -> Result<(), String> {
         let all_words = self.list_all_words();
         if all_words.len() == 0 {
             println!("No kmer of length {} could be found in the query sequence. Retry with lower word length, higher masking threshold or without masking", self.word_len);
             self.word = Arc::from(Vec::new());
-            return;
+            return Err("no kmers could be generated".to_string());
         }
         let mut rng = thread_rng();
         loop {
@@ -203,23 +197,30 @@ impl Searcher {
                     break;
                 }
             }
-        } 
+        }
+        Ok(())
     }
 
     fn list_all_words(&self) -> HashMap<usize, &[u8]> {
         let mut all_words = HashMap::new();
 
-        for i in 0..self.masked.len() - self.word_len {
-            if self.masked[i..i + self.word_len].contains(&78) {
+        let mut word_len = self.word_len;
+
+        if self.masked.len() < self.word_len {
+            word_len = self.masked.len();
+        }
+
+        for i in 0..self.masked.len() - word_len {
+            if self.masked[i..i + word_len].contains(&78) {
                 continue;
             }
-            all_words.insert(i, &self.masked[i..i + self.word_len]);
+            all_words.insert(i, &self.masked[i..i + word_len]); //reverse this
         }
         all_words
     }
 
-    pub fn align(&mut self) {
-        self.get_word();
+    pub fn align(&mut self) -> Result<(), String> {
+        self.get_word()?;
         let mut handles = vec![];
         let word_start = self.word_start;
         let word_len = self.word_len;
@@ -250,6 +251,7 @@ impl Searcher {
             let hits = handle.join().unwrap();
             self.best_hits.insert(i, hits);
         }
+        Ok(())
     }
 
     pub fn summary(&self, db: &mut Records<BufReader<File>>) -> Summary {

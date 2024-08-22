@@ -11,7 +11,7 @@ use std::{
 use bio::io::fasta::Reader;
 use num::ToPrimitive;
 
-pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold: &usize, word_len: &usize, m_threshold: f64, mask: bool) -> TopTen {
+pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold: &usize, word_len: &usize, m_threshold: f64, mask: bool) -> Result<TopTen, String> {
     let mut total_time = 0.0;
     let mut top = TopTen::default();
     
@@ -34,7 +34,7 @@ pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold:
     
         let now = Instant::now();
         
-        searcher.align();
+        searcher.align()?;
         total_time += now.elapsed().as_secs_f64();
         
         let db_reader = Reader::from_file(&databank).unwrap();
@@ -45,7 +45,7 @@ pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold:
     top.retries = n_retries;
     top.sort();
     top.show_time = true;
-    top
+    Ok(top)
 }
 
 #[derive (Debug, Default)]
