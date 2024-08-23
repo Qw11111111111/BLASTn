@@ -6,7 +6,6 @@ mod benchmark;
 
 use clap::Parser;
 use bio::io::fasta::Reader;
-use num::ToPrimitive;
 use process_db::get_kmers;
 use std::{
     io::{stdin, Read}, 
@@ -37,7 +36,7 @@ fn main() -> Result<(), String> {
         }
 
     if args.recursive > 1{
-        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, args.mask_low_complexity)?;
+        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, !args.mask_no_low_complexity)?;
         
         let mut buf = [0, 0];
         loop {
@@ -89,7 +88,7 @@ fn main() -> Result<(), String> {
     let db = Arc::from(Mutex::from(db_reader.records()));
     
     let res: Vec<u8>;
-    if !args.mask_low_complexity {
+    if !args.mask_no_low_complexity {
         let mut dust = Dust::new(64, args.masking_threshold, query.seq().to_vec());
         res = dust.mask_regions();
     }
@@ -143,5 +142,5 @@ fn main() -> Result<(), String> {
 }
 
 fn get_idx_from_ascii(num: &u8) -> usize {
-    num.to_usize().unwrap() - 48
+    *num as usize - 48
 }

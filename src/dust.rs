@@ -1,7 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 
-use num::ToPrimitive;
-
 pub struct Dust {
     window_size: usize,
     threshold: f64,
@@ -86,8 +84,8 @@ impl Dust {
             let t = word[i];
             running_score += scores[t];
             scores[t] += 1.0;
-            if i > istart && running_score / (i - istart).to_f64().unwrap() > max_score {
-                max_score = running_score / (i - istart).to_f64().unwrap();
+            if i > istart && running_score / (i - istart) as f64 > max_score {
+                max_score = running_score / (i - istart) as f64;
                 finish = i;
             }
         }

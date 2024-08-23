@@ -9,7 +9,6 @@ use std::{
 };
 
 use bio::io::fasta::Reader;
-use num::ToPrimitive;
 
 pub fn benchmark(n_retries: usize, query_file: &str, databank: &str, threshhold: &usize, word_len: &usize, m_threshold: f64, mask: bool) -> Result<TopTen, String> {
     let mut total_time = 0.0;
@@ -126,7 +125,7 @@ impl fmt::Display for TopTen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.show_time {
             writeln!(f, "\nTotal time used: {}s", self.time)?;
-            writeln!(f, "time per run: {}s\n", self.time / self.retries.to_f64().unwrap())?;
+            writeln!(f, "time per run: {}s\n", self.time / self.retries as f64)?;
         }
         writeln!(f, "\nbest hits: \n")?;
 

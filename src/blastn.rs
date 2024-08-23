@@ -2,8 +2,6 @@ use std::{
     cmp::max, collections::{BTreeMap, HashMap}, fmt, fs::File, io::BufReader, sync::{Arc, Mutex}, thread
 };
 
-use num::ToPrimitive;
-
 use rand::{thread_rng, Rng};
 
 use bio::io::fasta::{Record, Records, Reader};
@@ -23,7 +21,7 @@ fn extend_match(q: &[u8], db: &[u8], t: usize, rev: bool) -> (usize, u64) {
                 s += 1;
             }
             else {
-                if s < t.to_u64().unwrap() {
+                if s < t as u64 {
                     return (i, 0);
                 }
                 s -= 1;
@@ -38,7 +36,7 @@ fn extend_match(q: &[u8], db: &[u8], t: usize, rev: bool) -> (usize, u64) {
                 s += 5;
             }
             else {
-                if s < t.to_u64().unwrap() {
+                if s < t as u64 {
                     return (i, 0);
                 }
                 s -= 4
@@ -124,7 +122,7 @@ impl BLASTn {
         for i in 0..self.masked_query.len() - self.k {
             let kmer = &self.masked_query[i..i + self.k];
             let key: u64 = kmer.iter().enumerate().map(|(i, nt)| {
-                nt.to_u64().unwrap() * 4_u64.pow(i.to_u32().unwrap())
+                *nt as u64 * 4_u64.pow(i as u32)
             }).sum();
             let current = kmers.entry(key).or_insert_with(Vec::default);
             current.push(i);
@@ -287,7 +285,7 @@ impl Searcher {
             name = "".to_string();
         }
         else {
-            similarity = max.to_f64().unwrap() / self.query.seq().len().to_f64().unwrap() * 100.0;
+            similarity = max as f64 / self.query.seq().len() as f64 * 100.0;
             let binding = db.nth(best_idx.0).unwrap().unwrap();
             word = binding.seq()[best_idx.1..best_idx.1 + self.query.seq().len()].to_vec();
             name = binding.id().to_string();
@@ -320,7 +318,7 @@ impl Searcher {
                 let idx = (*i, j - self.word_start);
                 let word = recs[idx.0].seq()[idx.1..idx.1 + self.query.seq().len()].to_vec();
                 let name = recs[idx.0].id().to_string();
-                let similarity = item.to_f64().unwrap() / self.query.seq().len().to_f64().unwrap() * 100.0;
+                let similarity = *item as f64 / self.query.seq().len() as f64 * 100.0;
                 tt.insert(Summary { best_idx: idx, score: *item, seq: word, similarity: similarity, query: self.query.seq().to_vec(), id: name })
             }
         }

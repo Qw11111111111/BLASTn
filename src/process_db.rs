@@ -5,7 +5,6 @@ use std::{
     thread
 };
 use bio::io::fasta::Records;
-use num::ToPrimitive;
 
 
 pub fn get_kmers(k: usize, mut db: Records<BufReader<File>>) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
@@ -17,7 +16,7 @@ pub fn get_kmers(k: usize, mut db: Records<BufReader<File>>) -> HashMap<usize, B
             for i in 0..record.seq().len() - k {
                 let kmer = &record.seq()[i..i + k];
                 let key: u64 = kmer.iter().enumerate().map(|(i, nt)| {
-                    nt.to_u64().unwrap() * 4_u64.pow(i.to_u32().unwrap())
+                    *nt as u64 * 4_u64.pow(i as u32)
                 }).sum();
                 let current = kmers.entry(key).or_insert_with(Vec::default);
                 current.push(i);

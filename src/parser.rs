@@ -33,7 +33,7 @@ pub struct Args {
 
     /// do not mask low complexity regions with DUST
     #[arg(short, long, default_value = "false")]
-    pub mask_low_complexity: bool,
+    pub mask_no_low_complexity: bool,
 
     /// Threshold for a sequence to be masked
     #[arg(long, default_value = "1.0")]
