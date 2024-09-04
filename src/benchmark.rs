@@ -131,7 +131,7 @@ impl fmt::Display for TopTen {
 
         for (i, key) in self.keys.iter().enumerate() {
             let s = &self.hits[key];
-            writeln!(f, "{i}: Record: {:>15} | Idx: {:>8} | Times found: {:>3} | P-value: {:.5} | E-value: {:.3}", s.id, s.best_idx.1, self.hits_found[*key], s.pvalue, s.evalue)?;
+            writeln!(f, "{i}: Record: {:>15} | Idx: {:>8} | Times found: {:>3} | P-value: {:+e} | E-value: {:+e}", s.id, s.best_idx.1, self.hits_found[*key], s.pvalue, s.evalue)?;
         };
 
         if self.keys.len() == 0 {

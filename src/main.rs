@@ -127,9 +127,12 @@ fn main() -> Result<(), String> {
         else {
             let tt = searcher.sm(&args.db_file);
             if tt.hits_found.len() == 0 {
-                println!("\nNo hits found\n");
+                if args.verbose {
+                    println!("\nNo hits found\n");
+                }
                 if n_retries > 5 {
-                    println!("aborting...")
+                    println!("No hits found \naborting...");
+                    return Ok(());
                 }
                 n_retries += 1;
                 continue;
