@@ -141,7 +141,7 @@ impl BLASTn {
 
 
 
-fn get_score(seq1: &[u8], seq2: &[u8]) -> usize {
+fn get_score(seq1: &[u8], seq2: &[u8]) -> i16 {
     let mut n = 0;
     for (i, &item) in seq1.iter().enumerate() {
         if item == 78 {
@@ -150,33 +150,40 @@ fn get_score(seq1: &[u8], seq2: &[u8]) -> usize {
         if item == seq2[i] {
             n += 1;
         }
+        else {
+            n -= 1;
+        }
     }
     n
 }
 
 pub struct Searcher {
-    threshold: usize,
+    threshold: i16,
     word_start: usize,
     word_len: usize,
-    best_hits: HashMap<usize, HashMap<usize, usize>>,
+    best_hits: HashMap<usize, HashMap<usize, i16>>,
     query: Arc<Record>,
     db: Arc<Mutex<Records<BufReader<File>>>>,
     word: Arc<Vec<u8>>,
-    masked: Vec<u8>
+    masked: Vec<u8>,
+    k: f64,
+    lambda : f64
 }
 
 impl Searcher {
 
     pub fn new(query: Arc<Record>, db: Arc<Mutex<Records<BufReader<File>>>>, threshold: usize, word_len: usize, masked: Vec<u8>) -> Self {
         Self {
-            threshold: threshold,
+            threshold: threshold as i16,
             word_len: word_len,
             word_start: 0,
             best_hits: HashMap::default(),
             query: query,
             db: db,
             word: Arc::default(),
-            masked: masked
+            masked: masked,
+            k: 0.5, //need to check these values
+            lambda: 0.693
         }
     }
 
@@ -241,7 +248,7 @@ impl Searcher {
                 let idx_in_rec = max(i * batch_size - query.len() as i64, 0) as usize;
                 handles.push(thread::spawn(move || {
                     let rec = batch.try_lock().unwrap();
-                    let mut hits: HashMap<usize, usize> = HashMap::default();
+                    let mut hits: HashMap<usize, i16> = HashMap::default();
                     for i in word_start..rec.len() - query.len() + word_start {
                         let mut score = get_score(&word, &rec[i..i + word_len]);
                         if score >= threshold {
@@ -280,24 +287,30 @@ impl Searcher {
         let mut word: Vec<u8> = vec![];
         let similarity: f64;
         let name: String;
+        let evalue: f64;
         if max == 0 {
             similarity = 0.0;
+            evalue = 0.0;
             name = "".to_string();
         }
         else {
-            similarity = max as f64 / self.query.seq().len() as f64 * 100.0;
             let binding = db.nth(best_idx.0).unwrap().unwrap();
             word = binding.seq()[best_idx.1..best_idx.1 + self.query.seq().len()].to_vec();
             name = binding.id().to_string();
+            let bit_score = (self.lambda * max as f64 - self.k.ln()) / 2.0_f64.ln();
+            similarity = bit_score;
+            evalue = (self.query.seq().len() * binding.seq().len()) as f64 * 2.0_f64.powf(-bit_score);
         }
-
+        let pvalue = 1.0 - (-evalue).exp();
         Summary {
             best_idx: best_idx,
             score: max,
             seq: word,
             query: self.query.seq().to_vec(),
             similarity: similarity,
-            id: name
+            id: name,
+            evalue: evalue,
+            pvalue: pvalue
         }
     }
     
@@ -308,18 +321,32 @@ impl Searcher {
         for rec in Reader::from_file(db).unwrap().records() {
             recs.push(rec.unwrap());
         }
+
+        let mut masked_len = self.masked.len() as f64;
+        for &i in self.masked.iter() {
+            if i == 78 {
+                masked_len -= 1.0;
+            }
+        }
+
         for (i, map) in self.best_hits.iter() {
             for (j, item) in map.iter() {
                 if tt.hits.len() == 10 {
-                    if *item < tt.min {
+                    if *item < tt.min as i16{
                         continue;
                     }
                 }
                 let idx = (*i, j - self.word_start);
                 let word = recs[idx.0].seq()[idx.1..idx.1 + self.query.seq().len()].to_vec();
                 let name = recs[idx.0].id().to_string();
-                let similarity = *item as f64 / self.query.seq().len() as f64 * 100.0;
-                tt.insert(Summary { best_idx: idx, score: *item, seq: word, similarity: similarity, query: self.query.seq().to_vec(), id: name })
+                let bit_score = (self.lambda * *item as f64 - self.k.ln()) / 2.0_f64.ln();
+                let similarity =  bit_score;
+                let evalue = masked_len * recs[idx.0].seq().len() as f64 * 2.0_f64.powf(-bit_score);
+                let pvalue = 1.0 - (-evalue).exp();
+                if pvalue > 0.05 {
+                    continue
+                }
+                tt.insert(Summary { best_idx: idx, score: *item, seq: word, similarity: similarity, query: self.query.seq().to_vec(), id: name, evalue: evalue, pvalue: pvalue })
             }
         }
         tt.sort();
@@ -334,11 +361,13 @@ impl Searcher {
 #[derive (Debug, PartialEq)]
 pub struct Summary {
     pub best_idx: (usize, usize),
-    pub score: usize,
+    pub score: i16,
     pub seq: Vec<u8>,
     pub similarity: f64,
     pub query: Vec<u8>,
-    pub id: String
+    pub id: String,
+    pub evalue: f64,
+    pub pvalue: f64
 }
 
 impl fmt::Display for Summary {
@@ -354,7 +383,10 @@ impl fmt::Display for Summary {
         for char in self.seq.iter() {
             write!(f, "{}", convert_to_ascii(char))?;
         }
-        writeln!(f, "\n\nSimilarity to masked query: {}%", self.similarity)
+        //writeln!(f, "\n\nSimilarity to masked query: {}%", self.similarity)
+        writeln!(f, "\n\nBit score: {}", self.similarity)?;
+        writeln!(f, "E value: {}", self.evalue)
+
     }
 }
 

@@ -39,10 +39,13 @@ pub fn get_kmers(k: usize, mut db: Records<BufReader<File>>) -> HashMap<usize, B
     tree_map
 }
 
-pub fn save_processed_db() {
-    //TODO
+/*
+pub fn save_processed_db(db: HashMap<usize, BTreeMap<u64, Vec<usize>>>, path: &str) {
+    //TODO: seialize the map with serde and save it as json
 }
 
-pub fn load_processed_db () {
+pub fn load_processed_db(path: &str) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
     //TODO
+    HashMap::default()
 }
+    */

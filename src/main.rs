@@ -84,8 +84,6 @@ fn main() -> Result<(), String> {
         return Ok(());
     }
 
-    let db_reader = Reader::from_file(&args.db_file).unwrap();
-    let db = Arc::from(Mutex::from(db_reader.records()));
     
     let res: Vec<u8>;
     if !args.mask_no_low_complexity {
@@ -96,46 +94,61 @@ fn main() -> Result<(), String> {
         res = query.seq().to_vec();
     }
 
-    let mut searcher = Searcher::new(query.clone(), db, t, args.length, res.clone());
-    let now = Instant::now();
-    if searcher.align().is_err() {
-        println!("Masked Query: ");
-        for i in res.iter() {
-            print!("{}", convert_to_ascii(i));
-        }
-        println!();
-        return Ok(());
-    }
-    
-    if args.verbose {
-        println!("\nSearch finished after {:#?}\n", now.elapsed());
-        println!("Masked Query: ");
-        for i in res.iter() {
-            print!("{}", convert_to_ascii(i));
-        }
-        println!();
-    }
-
-    if args.single_result {
-        let db_reader = Reader::from_file(args.db_file).unwrap();
-        let summary = searcher.summary(&mut db_reader.records());
-        println!("{}", summary);
-    }
-    else {
-        let tt = searcher.sm(&args.db_file);
-        let mut buf = [0, 0];
-        loop {
-            println!("{}", tt);
-            println!("print a sequence [index]/[N]");
-            let _  = stdin().read(&mut buf);
-
-            if buf[0] < 58 && buf[0] > 47 {
-                tt.print(get_idx_from_ascii(&buf[0]));
+    //let mut searcher = Searcher::new(query.clone(), db, t, args.length, res.clone());
+    let mut n_retries = 0;
+    loop {
+        let db_reader = Reader::from_file(&args.db_file).unwrap();
+        let db = Arc::from(Mutex::from(db_reader.records()));
+        let mut searcher = Searcher::new(query.clone(), db, t, args.length, res.clone());
+        let now = Instant::now();
+        if searcher.align().is_err() {
+            println!("Masked Query: ");
+            for i in res.iter() {
+                print!("{}", convert_to_ascii(i));
             }
-            else {
-                break;
+            println!();
+            return Ok(());
+        }
+        
+        if args.verbose {
+            println!("\nSearch finished after {:#?}\n", now.elapsed());
+            println!("Masked Query: ");
+            for i in res.iter() {
+                print!("{}", convert_to_ascii(i));
+            }
+            println!();
+        }
+
+        if args.single_result {
+            let db_reader = Reader::from_file(args.db_file.clone()).unwrap();
+            let summary = searcher.summary(&mut db_reader.records());
+            println!("{}", summary);
+        }
+        else {
+            let tt = searcher.sm(&args.db_file);
+            if tt.hits_found.len() == 0 {
+                println!("\nNo hits found\n");
+                if n_retries > 5 {
+                    println!("aborting...")
+                }
+                n_retries += 1;
+                continue;
+            }
+            let mut buf = [0, 0];
+            loop {
+                println!("{}", tt);
+                println!("print a sequence [index]/[N]");
+                let _  = stdin().read(&mut buf);
+
+                if buf[0] < 58 && buf[0] > 47 {
+                    tt.print(get_idx_from_ascii(&buf[0]));
+                }
+                else {
+                    break;
+                }
             }
         }
+        break;
     }
 
     Ok(())

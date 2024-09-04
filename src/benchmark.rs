@@ -52,7 +52,7 @@ pub struct TopTen {
     pub time: f64, 
     pub hits: HashMap<usize, Summary>,
     pub keys: Vec<usize>,
-    pub min: usize,
+    pub min: i16,
     min_idx: usize,
     pub retries: usize,
     pub show_time: bool,
@@ -92,7 +92,7 @@ impl TopTen {
             }
             self.hits.insert(self.min_idx, summary);
             self.hits_found[self.min_idx] = 1;
-            let mut new_min = self.hits[&0].query.len(); // reference value
+            let mut new_min = self.hits[&0].query.len() as i16; // reference value
             for (i, key) in self.keys.iter().enumerate() {
                 let s = self.hits[key].score;
                 if s < new_min {
@@ -131,7 +131,7 @@ impl fmt::Display for TopTen {
 
         for (i, key) in self.keys.iter().enumerate() {
             let s = &self.hits[key];
-            writeln!(f, "{i}: Record: {0:>15} | Idx: {1:>8} | Times found: {3:>5} | Similarity to masked query: {2} ", s.id, s.best_idx.1, s.similarity, self.hits_found[*key])?;
+            writeln!(f, "{i}: Record: {:>15} | Idx: {:>8} | Times found: {:>3} | P-value: {:.5} | E-value: {:.3}", s.id, s.best_idx.1, self.hits_found[*key], s.pvalue, s.evalue)?;
         };
 
         if self.keys.len() == 0 {
