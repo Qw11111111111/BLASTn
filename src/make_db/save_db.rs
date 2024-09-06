@@ -25,9 +25,9 @@ pub fn save_to_csv(recs: Vec<Record>, path: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn _example() -> io::Result<()> {
+pub fn example() -> io::Result<()> {
     let (tx, rx) = sync::mpsc::channel();
-    parse_and_compress_fasta("genomes/seq.fna", 1024, tx)?;
-    save_compressed_db("genomes/seq.bin", rx)?;
+    parse_and_compress_fasta("genomes/ecoli.fna", 1024, tx)?;
+    save_compressed_db("genomes/ecoli.bin", rx)?;
     Ok(())
 }

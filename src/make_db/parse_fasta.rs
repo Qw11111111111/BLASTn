@@ -46,16 +46,15 @@ fn fill_byte(mut byte: u8, seq: &[u8]) -> Option<u8> {
 
 fn clean_up(last_byte: Option<u8>, tx: &sync::mpsc::Sender<Vec<u8>>, records: &mut Vec<Record>, total_bytes: u128, last_missing: usize) {
     //sends the last potentially not filled byte and sets the end of the last record to the end of the entire sequence
-    //TODO: correct the eend bits and bytes values
     if let Some(byte) = last_byte {
         tx.send(vec![byte]).expect("failed tp send bytes");
         let length = records.len() - 1;
-        records[length].end_byte = total_bytes;
+        records[length].end_byte = total_bytes - 1;
         records[length].end_bit = last_missing;
     }
     else {
         let length = records.len() - 1;
-        records[length].end_byte = total_bytes;
+        records[length].end_byte = total_bytes - 1;
         records[length].end_bit = 3; 
     }
 }
@@ -136,23 +135,34 @@ fn ensure_filled_bytes(filtered: Vec<u8>, last_byte: &mut Option<u8>, last_missi
     (byte_seq, next_bytes)
 }
 
-fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, next_bytes: &mut u128, records: &mut Vec<Record>) {
+fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Record>, last_missing: usize) {
     //appends and converts all ids into records, filling out their ranges and reducing the next_bytes accordingly
-    //TODO: correct the calculations for start and end bytes and bits
     for id in ids {
         let start_byte = *total_bytes + id.start as u128 / 4;
-        *next_bytes -= start_byte;
-        *total_bytes = 0;
         if records.len() > 0 {
             let length = records.len() - 1;
-            records[length].end_byte = start_byte - 1;
-            records[length].end_bit = ((id.start as i32 - 1) % 4 - 3).abs() as usize;
+            let mut end_bit = (((id.start - last_missing) as i32) % 4) as usize;
+            if end_bit == 0 {
+                end_bit = 3;
+            }
+            else {
+                end_bit -= 1;
+            }
+            let end_byte: u128;
+            if end_bit == 3 {
+                end_byte = start_byte - 1;
+            }
+            else {
+                end_byte = start_byte;
+            }
+            records[length].end_bit = end_bit;
+            records[length].end_byte = end_byte;
         }
         records.push(
             Record {
                 id: String::from_utf8(id.id).expect("failed to cast id to str"),
                 start_byte: start_byte,
-                start_bit: ((id.start as i32) % 4 - 3).abs() as usize,
+                start_bit: (((id.start - last_missing) as i32) % 4) as usize,
                 end_bit: 0,
                 end_byte: 0
             }
@@ -208,6 +218,7 @@ pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::S
         let mut ids = vec![];
 
         handle_ids(&mut buffer, &mut bytes, &mut ids);
+        
         //filters all line feeds and fills all bytes except for the last one, which remains for the next iteration
 
         let filtered: Vec<u8> = buffer[..bytes]
@@ -216,12 +227,13 @@ pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::S
             .filter(|&item| item != 10)
             .collect();
         
-        let (byte_seq, mut next_bytes) = ensure_filled_bytes(filtered, &mut last_byte, &mut last_missing);
-        append_to_records(ids, &mut total_bytes, &mut next_bytes, &mut records);
+        let last_last_missing = last_missing;
+        let (byte_seq, next_bytes) = ensure_filled_bytes(filtered, &mut last_byte, &mut last_missing);
+        append_to_records(ids, &mut total_bytes, &mut records, last_last_missing);
 
         total_bytes += next_bytes;
-        tx.send(byte_seq).expect("failed tp send bytes");//.inspect_err(|e| eprintln!("failed to send bytes, {}", e));
+        tx.send(byte_seq).expect("failed to send bytes");
     }
-    save_to_csv(records, "genomes/records.csv")?;
+    save_to_csv(records, "genomes/records_ecoli.csv")?;
     Ok(())
 }
