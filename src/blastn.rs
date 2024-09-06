@@ -13,37 +13,8 @@ fn get_hsps(q: Arc<HashMap<u64, Vec<usize>>>, db: &BTreeMap<u64, Vec<usize>>) {
 
 }
 */
-fn extend_match(q: &[u8], db: &[u8], t: usize, rev: bool) -> (usize, u64) {
-    if rev {
-        let mut s = 0;
-        for (i, &base) in q.iter().enumerate().rev() {
-            if base == db[i] {
-                s += 1;
-            }
-            else {
-                if s < t as u64 {
-                    return (i, 0);
-                }
-                s -= 1;
-            }
-        }
-        (q.len(), s)
-    }
-    else {
-        let mut s = 0;
-        for (i, &base) in q.iter().enumerate() {
-            if base == db[i] {
-                s += 5;
-            }
-            else {
-                if s < t as u64 {
-                    return (i, 0);
-                }
-                s -= 4
-            }
-        }
-        (q.len(), s)
-    }
+fn extend_match(q: &[u8], db: &[u8], t: usize) -> (usize, u64) {
+    (0, 0)
 }
 
 #[derive (Clone, Debug)]
@@ -57,7 +28,6 @@ pub struct Match {
 
 pub struct BLASTn {
     masked_query: Arc<Vec<u8>>,
-    //hssp_threshold: usize,
     elongation_threshold: usize,
     k: usize,
     db: Records<BufReader<File>>
@@ -97,9 +67,9 @@ impl BLASTn {
                                 if idx_in_db < idx_in_q || (idx_in_db - idx_in_q + q.len()) > rec.seq().len() {
                                     continue;
                                 }
-                                let score1 = extend_match(&q[..*idx_in_q], &rec.seq()[idx_in_db - idx_in_q..*idx_in_db], t, true);
-                                let score2 = extend_match(&q[*idx_in_q..], &rec.seq()[*idx_in_db..idx_in_db - idx_in_q + q.len()], t, false);
-                                matches.push(Match { wstart: *idx_in_q, idx_in_db: *idx_in_db, score: score1.1 + score2.1, similarity: 0.0, start_stop: (idx_in_db - score1.0, score2.0 + idx_in_db) })
+                                //let score1 = extend_match(&q[..*idx_in_q], &rec.seq()[idx_in_db - idx_in_q..*idx_in_db], t, true);
+                                //let score2 = extend_match(&q[*idx_in_q..], &rec.seq()[*idx_in_db..idx_in_db - idx_in_q + q.len()], t, false);
+                                //matches.push(Match { wstart: *idx_in_q, idx_in_db: *idx_in_db, score: score1.1 + score2.1, similarity: 0.0, start_stop: (idx_in_db - score1.0, score2.0 + idx_in_db) })
                             }
                         }
                     }

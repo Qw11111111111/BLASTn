@@ -2,6 +2,7 @@ pub mod blastn;
 pub mod parser;
 pub mod dust;
 pub mod process_db;
+pub mod make_db;
 mod benchmark;
 
 use clap::Parser;
