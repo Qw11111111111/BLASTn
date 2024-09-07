@@ -1,4 +1,4 @@
-use std::{fs, io::{self, Read}, sync, cmp::min, str};
+use std::{cmp::{min, max}, fs, io::{self, Read}, str, sync, vec};
 use crate::make_db::{records::Record, save_db::*};
 
 struct Id {
@@ -12,7 +12,7 @@ fn get_bit(ch: &u8) -> u8 {
         71 => 0b01, //G
         84 => 0b10, //T
         67 => 0b11, //C
-        _ => panic!("Wrong nucleotide")
+        _ => panic!("Wrong nucleotide: {}", ch)
     }
 }
 
@@ -34,14 +34,11 @@ fn parse_to_bytes(buf: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn fill_byte(mut byte: u8, seq: &[u8]) -> Option<u8> {
+fn fill_byte(byte: &mut u8, seq: &[u8]) {
+    //fills the byte with a clean sequence of the number of missing bits
     for (i, item) in seq.iter().enumerate() {
-        if *item == 10 {
-            return None;
-        }
-        byte |= get_bit(item) << (seq.len() - i) * 2;
+        *byte |= get_bit(item) << (seq.len() - i) * 2;
     }
-    Some(byte)
 }
 
 fn clean_up(last_byte: Option<u8>, tx: &sync::mpsc::Sender<Vec<u8>>, records: &mut Vec<Record>, total_bytes: u128, last_missing: usize) {
@@ -59,80 +56,65 @@ fn clean_up(last_byte: Option<u8>, tx: &sync::mpsc::Sender<Vec<u8>>, records: &m
     }
 }
 
-fn handle_ids(buffer: &mut Vec<u8>, bytes: &mut usize, ids: &mut Vec<Id>) {
+fn handle_ids(buffer: &mut Vec<u8>, bytes: &mut usize, ids: &mut Vec<Id>) -> bool {
     //appends all ids into ids and reduces the number of bytes correspondingly
-    while let Some(id) = extract_ids(buffer) {
-        *bytes -= id.id.len();
-        ids.push(id);
+    loop {
+        match extract_ids(buffer) {
+            (Some(id), _is_valid_buffer) => {
+                *bytes -= id.id.len();
+                ids.push(id);
+            },
+            (None, is_valid_buffer) => return is_valid_buffer,
+        }
     }
 }
 
-fn ensure_filled_bytes(filtered: Vec<u8>, last_byte: &mut Option<u8>, last_missing: &mut usize) -> (Vec<u8>, u128) {
-    //makes sure that all bytes except for the last one in the database are filled with four nucleotides
-    //TODO: this has a lot of code duplication and can be further abstracted
-    let mut byte_seq: Vec<u8>;
-    if filtered.len() % 4 != 0 {
-        if let Some(byte) = *last_byte {
-            let (filler, remainder) = filtered.split_at(*last_missing);
-            let filled_byte_: u8;
-            loop {
-                if let Some(filled_byte) = fill_byte(byte, filler) {
-                    filled_byte_ = filled_byte;
-                    break;
-                }
-            }
-            if remainder.len() % 4 != 0 {
-                byte_seq = parse_to_bytes(&remainder);
-                *last_byte = Some(byte_seq.remove(byte_seq.len() - 1));
-                *last_missing = 4 - remainder.len() % 4;
-                let mut next = vec![filled_byte_];
-                next.append(&mut byte_seq);
-                byte_seq = next;
+fn ensure_filled_bytes(filtered: &mut Vec<u8>, last_byte: &mut Option<u8>, last_missing: &mut usize) -> Option<Vec<u8>> {
+    // generates a byte sequence and handles remaining bytes
+    if let Some(byte) = last_byte {
+        if *last_missing >= filtered.len() {
+            fill_byte(byte, &filtered);
+            *last_missing -= filtered.len();
+            if *last_missing > 0 {
+                return None;
             }
             else {
-                byte_seq = parse_to_bytes(&remainder);
-                let mut next = vec![filled_byte_];
-                next.append(&mut byte_seq);
-                byte_seq = next;
+                let next_bytes = Some(vec![byte.clone()]);
+                *last_byte = None;
+                return next_bytes;
             }
         }
         else {
-            byte_seq = parse_to_bytes(&filtered);
-            *last_byte = Some(byte_seq.remove(byte_seq.len() - 1));
-            *last_missing = 4 - filtered.len() % 4;
+            let filler = filtered.split_off(*last_missing);
+            fill_byte(byte, &filler);
+            *last_missing = 0;
         }
+    }
+    Some(generate_next_seq(filtered, last_byte, last_missing))
+}
+
+fn generate_next_seq(filtered: &mut Vec<u8>, last_byte: &mut Option<u8>, last_missing: &mut usize) -> Vec<u8> {
+    let mut next_bytes: Vec<u8>;
+
+    if let Some(byte) = last_byte {
+        next_bytes = vec![byte.clone()];
     }
     else {
-        if let Some(byte) = *last_byte {
-            let (filler, remainder) = filtered.split_at(*last_missing);
-            let filled_byte_: u8;
-            loop {
-                if let Some(filled_byte) = fill_byte(byte, filler) {
-                    filled_byte_ = filled_byte;
-                    break;
-                }
-            }
-            if remainder.len() % 4 != 0 {
-                byte_seq = parse_to_bytes(&remainder);
-                *last_byte = Some(byte_seq.remove(byte_seq.len() - 1));
-                *last_missing = 4 - remainder.len() % 4;
-                let mut next = vec![filled_byte_];
-                next.append(&mut byte_seq);
-                byte_seq = next;
-            }
-            else {
-                byte_seq = parse_to_bytes(&remainder);
-                let mut next = vec![filled_byte_];
-                next.append(&mut byte_seq);
-                byte_seq = next;
-            }
-        }
-        else {
-            byte_seq = parse_to_bytes(&filtered);
-        }
+        next_bytes = Vec::default();
     }
-    let next_bytes = byte_seq.len() as u128;
-    (byte_seq, next_bytes)
+
+    if filtered.len() % 4 == 0 {
+        let mut byte_seq = parse_to_bytes(&filtered);
+        next_bytes.append(&mut byte_seq);
+    }
+    else {
+        let mut byte_seq = parse_to_bytes(&filtered);
+        *last_byte = byte_seq.pop();
+        *last_missing = 4 - filtered.len() % 4;
+        next_bytes.append(&mut byte_seq);
+    }
+    
+    next_bytes
 }
 
 fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Record>, last_missing: usize) {
@@ -141,7 +123,7 @@ fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Rec
         let start_byte = *total_bytes + id.start as u128 / 4;
         if records.len() > 0 {
             let length = records.len() - 1;
-            let mut end_bit = (((id.start - last_missing) as i32) % 4) as usize;
+            let mut end_bit = ((id.start.abs_diff(last_missing) as i32) % 4) as usize;
             if end_bit == 0 {
                 end_bit = 3;
             }
@@ -150,7 +132,7 @@ fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Rec
             }
             let end_byte: u128;
             if end_bit == 3 {
-                end_byte = start_byte - 1;
+                end_byte = max(start_byte, 1) - 1;
             }
             else {
                 end_byte = start_byte;
@@ -162,7 +144,7 @@ fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Rec
             Record {
                 id: String::from_utf8(id.id).expect("failed to cast id to str"),
                 start_byte: start_byte,
-                start_bit: (((id.start - last_missing) as i32) % 4) as usize,
+                start_bit: ((id.start.abs_diff(last_missing) as i32) % 4) as usize,
                 end_bit: 0,
                 end_byte: 0
             }
@@ -170,7 +152,7 @@ fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Rec
     }
 }
 
-fn extract_ids(buf: &mut Vec<u8>) -> Option<Id> {
+fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, bool) {
     let mut start_of_id: Option<usize> = None;
     let mut end_of_id: Option<usize> = None;
     let mut n_new_lines_pre_id = 0;
@@ -192,24 +174,27 @@ fn extract_ids(buf: &mut Vec<u8>) -> Option<Id> {
             if let Some(end) = end_of_id {
                 let id = Some(Id {id:buf[start..end].to_vec(), start: start - n_new_lines_pre_id});
                 buf.splice(start..end, Vec::default());
-                return id; 
+                return (id, true); 
             }
         }
     }
-    None
+    (None, start_of_id == None)
 }
 
 pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::Sender<Vec<u8>>) -> io::Result<()> {
     let file = fs::File::open(path)?;
     let mut reader = io::BufReader::new(file);
-    let mut buffer = vec![0; chunk_size];
     let mut records: Vec<Record> = Vec::default();
     let mut total_bytes: u128 = 0;
     let mut last_byte: Option<u8> = None;
     let mut last_missing: usize = 0;
+    let mut bytes: usize = 0;
+    let mut overflow: Vec<u8> = Vec::default();
 
     loop {
-        let mut bytes = reader.read(&mut buffer)?;
+        let mut buffer = vec![0; chunk_size];
+        bytes += reader.read(&mut buffer)?;
+        overflow.append(&mut buffer);
         if bytes == 0 {
             clean_up(last_byte, &tx, &mut records, total_bytes, last_missing);
             break;
@@ -217,23 +202,27 @@ pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::S
         
         let mut ids = vec![];
 
-        handle_ids(&mut buffer, &mut bytes, &mut ids);
-        
+        if !handle_ids(&mut overflow, &mut bytes, &mut ids) {
+            continue;
+        }
         //filters all line feeds and fills all bytes except for the last one, which remains for the next iteration
 
-        let filtered: Vec<u8> = buffer[..bytes]
+        let mut filtered: Vec<u8> = overflow[..bytes]
             .iter()
             .copied()
             .filter(|&item| item != 10)
             .collect();
         
-        let last_last_missing = last_missing;
-        let (byte_seq, next_bytes) = ensure_filled_bytes(filtered, &mut last_byte, &mut last_missing);
-        append_to_records(ids, &mut total_bytes, &mut records, last_last_missing);
 
-        total_bytes += next_bytes;
-        tx.send(byte_seq).expect("failed to send bytes");
+        append_to_records(ids, &mut total_bytes, &mut records, last_missing);
+
+        if let Some(next_bytes) = ensure_filled_bytes(&mut filtered, &mut last_byte, &mut last_missing) {
+            total_bytes += next_bytes.len() as u128;
+            tx.send(next_bytes).expect("failed to send bytes");
+            overflow = Vec::default();
+            bytes = 0;
+        }
     }
-    save_to_csv(records, "genomes/records_ecoli.csv")?;
+    save_to_csv(records,  &(path.split('.').nth(0).unwrap().to_string() + ".csv"))?;
     Ok(())
 }
