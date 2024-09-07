@@ -56,7 +56,7 @@ fn clean_up(last_byte: Option<u8>, tx: &sync::mpsc::Sender<Vec<u8>>, records: &m
     }
 }
 
-fn handle_ids(buffer: &mut Vec<u8>, bytes: &mut usize, ids: &mut Vec<Id>) -> bool {
+fn handle_ids(buffer: &mut Vec<u8>, bytes: &mut usize, ids: &mut Vec<Id>) -> Option<usize> {
     //appends all ids into ids and reduces the number of bytes correspondingly
     loop {
         match extract_ids(buffer) {
@@ -152,7 +152,7 @@ fn append_to_records(ids: Vec<Id>, total_bytes: &mut u128, records: &mut Vec<Rec
     }
 }
 
-fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, bool) {
+fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, Option<usize>) {
     let mut start_of_id: Option<usize> = None;
     let mut end_of_id: Option<usize> = None;
     let mut n_new_lines_pre_id = 0;
@@ -174,11 +174,11 @@ fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, bool) {
             if let Some(end) = end_of_id {
                 let id = Some(Id {id:buf[start..end].to_vec(), start: start - n_new_lines_pre_id});
                 buf.splice(start..end, Vec::default());
-                return (id, true); 
+                return (id, None); 
             }
         }
     }
-    (None, start_of_id == None)
+    (None, start_of_id)
 }
 
 pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::Sender<Vec<u8>>) -> io::Result<()> {
@@ -188,39 +188,46 @@ pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::S
     let mut total_bytes: u128 = 0;
     let mut last_byte: Option<u8> = None;
     let mut last_missing: usize = 0;
-    let mut bytes: usize = 0;
-    let mut overflow: Vec<u8> = Vec::default();
+    let mut buffer = vec![0; chunk_size];
+    let mut faulty_idx = 0;
 
     loop {
-        let mut buffer = vec![0; chunk_size];
-        bytes += reader.read(&mut buffer)?;
-        overflow.append(&mut buffer);
+        let mut bytes = reader.read(&mut buffer[faulty_idx..])?;
+        bytes += faulty_idx;
         if bytes == 0 {
             clean_up(last_byte, &tx, &mut records, total_bytes, last_missing);
             break;
         }
         
         let mut ids = vec![];
+        let mut filtered: Vec<u8>;
 
-        if !handle_ids(&mut overflow, &mut bytes, &mut ids) {
-            continue;
-        }
-        //filters all line feeds and fills all bytes except for the last one, which remains for the next iteration
-
-        let mut filtered: Vec<u8> = overflow[..bytes]
+        if let Some(faulty_idx_) = handle_ids(&mut buffer, &mut bytes, &mut ids) {
+            filtered = buffer[..faulty_idx_]
             .iter()
             .copied()
             .filter(|&item| item != 10)
             .collect();
-        
+            faulty_idx = bytes - faulty_idx_;
+            let _: Vec<u8> = buffer.splice(0..faulty_idx, buffer[faulty_idx_..bytes].to_vec()).collect();
+        }
+        else {
+            filtered = buffer[..bytes]
+            .to_vec()
+            .iter()
+            .copied()
+            .filter(|&item| item != 10)
+            .collect();
+            faulty_idx = 0;
+        }
+
+        buffer.resize(chunk_size, 0);
 
         append_to_records(ids, &mut total_bytes, &mut records, last_missing);
 
         if let Some(next_bytes) = ensure_filled_bytes(&mut filtered, &mut last_byte, &mut last_missing) {
             total_bytes += next_bytes.len() as u128;
             tx.send(next_bytes).expect("failed to send bytes");
-            overflow = Vec::default();
-            bytes = 0;
         }
     }
     save_to_csv(records,  &(path.split('.').nth(0).unwrap().to_string() + ".csv"))?;

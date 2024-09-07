@@ -1,4 +1,5 @@
 use std::{fs, io::{self, Read}, str};
+use crate::make_db::records::{Record, Records};
 
 pub fn read_compressed_db(path: &str) -> io::Result<String> {
     let file = fs::File::open(path)?;
@@ -36,4 +37,19 @@ fn extract_str_from_bytes(bytes: &[u8]) -> String {
         nts.extend(chars);
     }
     nts
+}
+
+pub fn parse_compressed_db(path: &str) -> io::Result<Records> {
+    
+    let records = read_csv(&(path.to_string() + "records.csv"));
+
+    
+
+    Ok(Records::default())
+}
+
+fn read_csv(path: &str) -> Vec<Record> {
+    let records = Vec::default();
+
+    records
 }
