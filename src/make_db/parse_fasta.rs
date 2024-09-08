@@ -1,6 +1,8 @@
 use std::{cmp::{min, max}, fs, io::{self, Read}, str, sync, vec};
 use crate::make_db::{records::Record, save_db::*};
 
+use super::records::SimpleRecord;
+
 struct Id {
     id: Vec<u8>,
     start: usize
@@ -27,7 +29,7 @@ pub fn seq_to_byte(seq: &[u8]) -> u8 {
     byte
 }
 
-fn parse_to_bytes(buf: &[u8]) -> Vec<u8> {
+pub fn parse_to_bytes(buf: &[u8]) -> Vec<u8> {
     (0..buf.len())
         .step_by(4)
         .map(|i| seq_to_byte(&buf[i..min(i+4, buf.len())]))
@@ -232,4 +234,32 @@ pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::S
     }
     save_to_csv(records,  &(path.split('.').nth(0).unwrap().to_string() + ".csv"))?;
     Ok(())
+}
+
+pub fn parse_small_fasta(path: &str) -> io::Result<SimpleRecord> {
+    let mut query = fs::read(path)?;
+    let mut rec = SimpleRecord {
+        id: "".to_string(),
+        seq: Vec::default(),
+        words: Vec::default(),
+        k: 0
+    };
+
+    for i in 0..query.len() {
+        if query[i] == 10 {
+            rec.seq = query.split_off(i);
+            break;
+        }
+    }
+    rec.id = String::from_utf8(query).unwrap();
+    
+    let mut res = Vec::default();
+    for &item in &rec.seq {
+        if item != 10 {
+            res.push(item);
+        }
+    }
+    rec.seq = res;
+
+    Ok(rec)
 }

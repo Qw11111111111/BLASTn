@@ -1,5 +1,7 @@
-use std::{fs, io::{self, Read}, str};
+use std::{fs, io::{self, Read}, str, sync::mpsc};
 use crate::make_db::records::{Record, Records};
+
+use super::records::VecRecord;
 
 pub fn read_compressed_db(path: &str) -> io::Result<String> {
     let file = fs::File::open(path)?;
@@ -39,17 +41,28 @@ fn extract_str_from_bytes(bytes: &[u8]) -> String {
     nts
 }
 
-pub fn parse_compressed_db(path: &str) -> io::Result<Records> {
-    
-    let records = read_csv(&(path.to_string() + "records.csv"));
+pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sender<Vec<u8>>) -> io::Result<()> {
+    let file = fs::File::open(path)?;
+    let mut reader = io::BufReader::new(file);
+    let mut buf = vec![0; chunk_size];
 
-    
+    loop {
+        let bytes = reader.read(&mut buf)?;
+        if bytes == 0 {
+            break;
+        }
+        sender.send(buf[..bytes].to_vec());
+    }
 
-    Ok(Records::default())
+    Ok(())
 }
 
-fn read_csv(path: &str) -> Vec<Record> {
-    let records = Vec::default();
+pub fn read_csv(path: &str) -> io::Result<VecRecord> {
+    let mut records = VecRecord::default();
+    let mut reader = csv::Reader::from_path(path)?;
+    for rec in reader.deserialize() {
+        records.push(rec?);
+    }
 
-    records
+    Ok(records)
 }
