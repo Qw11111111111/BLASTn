@@ -1,7 +1,5 @@
 use std::{cmp::{min, max}, fs, io::{self, Read}, str, sync, vec};
-use crate::make_db::{records::Record, save_db::*};
-
-use super::records::SimpleRecord;
+use super::records::{SimpleRecord, Record};
 
 struct Id {
     id: Vec<u8>,
@@ -183,7 +181,7 @@ fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, Option<usize>) {
     (None, start_of_id)
 }
 
-pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::Sender<Vec<u8>>) -> io::Result<()> {
+pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::Sender<Vec<u8>>) -> io::Result<Vec<Record>> {
     let file = fs::File::open(path)?;
     let mut reader = io::BufReader::new(file);
     let mut records: Vec<Record> = Vec::default();
@@ -232,8 +230,7 @@ pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::S
             tx.send(next_bytes).expect("failed to send bytes");
         }
     }
-    save_to_csv(records,  &(path.split('.').nth(0).unwrap().to_string() + ".csv"))?;
-    Ok(())
+    Ok(records)
 }
 
 pub fn parse_small_fasta(path: &str) -> io::Result<SimpleRecord> {

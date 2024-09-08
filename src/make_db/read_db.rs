@@ -1,6 +1,4 @@
 use std::{fs, io::{self, Read}, str, sync::mpsc};
-use crate::make_db::records::{Record, Records};
-
 use super::records::VecRecord;
 
 pub fn read_compressed_db(path: &str) -> io::Result<String> {
@@ -51,7 +49,7 @@ pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sen
         if bytes == 0 {
             break;
         }
-        sender.send(buf[..bytes].to_vec());
+        sender.send(buf[..bytes].to_vec()).expect("couldnt send buf");
     }
 
     Ok(())

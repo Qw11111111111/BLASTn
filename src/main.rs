@@ -20,7 +20,7 @@ use blastn::{convert_to_ascii, BLASTn, Searcher};
 use parser::Args;
 use benchmark::benchmark;
 use dust::Dust;
-use make_db::save_db::example;
+use make_db::save_db::generate_db;
 
 fn get_db(path: &str, k: usize) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
     let db_reader = Reader::from_file(path).unwrap();
@@ -33,7 +33,7 @@ fn main() -> Result<(), String> {
     //TODO: Rewrite the search to match the procedure outlined here: https://en.wikipedia.org/wiki/BLAST_(biotechnology), as the current implementation is rather naive.
     let args = Args::parse();
     let now = Instant::now();
-    let _ = example();
+    let _ = generate_db("genomes/ecoli.fna", "genomes/ecoli/");
     println!("{:#?}", now.elapsed());
     return Ok(());
     let mut t = args.threshold;

@@ -1,5 +1,5 @@
-use std::{fs, io::{self, Write}, str, sync, thread, time::Instant};
-use crate::make_db::{records::Record, parse_fasta::parse_and_compress_fasta};
+use std::{fs, io::{self, Write}, str, sync, thread};
+use super::{records::Record, parse_fasta::parse_and_compress_fasta};
 
 pub fn save_compressed_db(path: &str, rx: sync::mpsc::Receiver<Vec<u8>>) -> io::Result<()> {
     let file = fs::File::create(path)?;
@@ -21,19 +21,21 @@ pub fn save_to_csv(recs: Vec<Record>, path: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub fn example() -> io::Result<()> {
-    let now = Instant::now();
+pub fn generate_db(db_path: &str, out_path: &str) -> io::Result<()> {
+    fs::create_dir_all(out_path)?;
+    let db_path_ = db_path.to_string();
     let (tx, rx) = sync::mpsc::channel();
-    let handle: thread::JoinHandle<io::Result<()>> = thread::spawn(move || {
-        parse_and_compress_fasta("genomes/ecoli.fna", 2048, tx)?;
-        Ok(())
+    let handle: thread::JoinHandle<io::Result<Vec<Record>>> = thread::spawn(move || {
+        let records = parse_and_compress_fasta(&db_path_, 2048, tx)?;
+        Ok(records)
     });
-    println!("{:#?}", now.elapsed());
+    let out_path_ = out_path.to_string();
     let handle2: thread::JoinHandle<io::Result<()>> = thread::spawn(move || {
-        save_compressed_db("genomes/ecoli.bin", rx)?;
+        save_compressed_db(&(out_path_ + "seq.bin"), rx)?;
         Ok(())
     });
-    let _ = handle.join();
+    let records = handle.join().unwrap().unwrap();
+    save_to_csv(records,  &(out_path.to_string() + "records.csv"))?;
     let _ = handle2.join();
     Ok(())
 }

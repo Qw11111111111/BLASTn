@@ -29,6 +29,13 @@ impl Iterator for VecRecord {
 }
 
 impl VecRecord {
+    pub fn new(records: Vec<Arc<Record>>) -> Self {
+        Self {
+            current_record : Arc::clone(&records[0]),
+            records: records,
+            current: 0,
+        }
+    }
 
     pub fn push(&mut self, record: Record) {
         self.records.push(Arc::new(record));
