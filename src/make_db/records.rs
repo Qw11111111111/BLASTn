@@ -49,7 +49,7 @@ pub struct Records<'a> {
     pub bytes: Vec<u8>,
     current: usize,
     chunk_size: usize,
-    current_rec: usize
+    pub current_rec: usize
 }
 
 impl<'a> Records<'a> {

@@ -19,7 +19,7 @@ pub fn read_compressed_db(path: &str) -> io::Result<String> {
     Ok(all_nts)
 }
 
-fn extract_str_from_bytes(bytes: &[u8]) -> String {
+pub fn extract_str_from_bytes(bytes: &[u8]) -> String {
     let mut nts = "".to_string();
     for byte in bytes.iter() {
         let chars = (0..=6)
@@ -40,7 +40,7 @@ fn extract_str_from_bytes(bytes: &[u8]) -> String {
 }
 
 pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sender<Vec<u8>>) -> io::Result<()> {
-    let file = fs::File::open(path)?;
+    let file = fs::File::open(&(path.to_string() + "seq.bin"))?;
     let mut reader = io::BufReader::new(file);
     let mut buf = vec![0; chunk_size];
 
@@ -49,6 +49,7 @@ pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sen
         if bytes == 0 {
             break;
         }
+        println!("read: {:#?}", extract_str_from_bytes(&buf[..bytes]));
         sender.send(buf[..bytes].to_vec()).expect("couldnt send buf");
     }
 
@@ -57,7 +58,7 @@ pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sen
 
 pub fn read_csv(path: &str) -> io::Result<VecRecord> {
     let mut records = VecRecord::default();
-    let mut reader = csv::Reader::from_path(path)?;
+    let mut reader = csv::Reader::from_path(&(path.to_string() + "records.csv"))?;
     for rec in reader.deserialize() {
         records.push(rec?);
     }

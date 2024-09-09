@@ -17,6 +17,7 @@ use std::{
 };
 
 use blastn::{convert_to_ascii, BLASTn, Searcher};
+use blastn2::{align, Params};
 use parser::Args;
 use benchmark::benchmark;
 use dust::Dust;
@@ -33,8 +34,18 @@ fn main() -> Result<(), String> {
     //TODO: Rewrite the search to match the procedure outlined here: https://en.wikipedia.org/wiki/BLAST_(biotechnology), as the current implementation is rather naive.
     let args = Args::parse();
     let now = Instant::now();
-    let _ = generate_db("genomes/ecoli.fna", "genomes/ecoli/");
+    let _ = generate_db("genomes/seq3.fna", "genomes/seq3/");
     println!("{:#?}", now.elapsed());
+
+    let params = Params {
+        k: 12,
+        extension_threshhold: 100,
+        scanning_threshhold: 12,
+        extension_length: 50
+    };
+
+    let _ = align("genomes/seq3/", &args.query_file, 10, Arc::new(params));
+
     return Ok(());
     let mut t = args.threshold;
         if t > args.length {
