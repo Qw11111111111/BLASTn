@@ -13,7 +13,7 @@ fn get_hsps(q: Arc<HashMap<u64, Vec<usize>>>, db: &BTreeMap<u64, Vec<usize>>) {
 
 }
 */
-fn extend_match(q: &[u8], db: &[u8], t: usize) -> (usize, u64) {
+fn _extend_match(_q: &[u8], _db: &[u8], _t: usize) -> (usize, u64) {
     (0, 0)
 }
 
@@ -49,7 +49,7 @@ impl BLASTn {
         let mut handles = Vec::new();
         let kmers = Arc::from(self.get_all_kmers());
         let mut idx = 0;
-        let t = self.elongation_threshold;
+        let _t = self.elongation_threshold;
 
 
         while let Some(record) = self.db.next() {
@@ -59,7 +59,7 @@ impl BLASTn {
             let q = self.masked_query.clone();
             idx += 1;
             handles.push(thread::spawn(move || {
-                let mut matches: Vec<Match> = Vec::new();
+                let  matches: Vec<Match> = Vec::new();
                 for (key, idx) in kmers.iter() {
                     for idx_in_q in idx.iter() {
                         if let Some(index) = kmers_in_rec.get(key) {

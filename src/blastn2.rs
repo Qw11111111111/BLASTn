@@ -126,7 +126,7 @@ fn distribute_chunks(chunk_receiver: mpsc::Receiver<Vec<u8>>, distributors: Vec<
                 not_finished = false;
             },
         }
-        println!("received in distro: {:#?}", extract_str_from_bytes(&received));
+        //println!("received in distro: {:#?}", extract_str_from_bytes(&received));
         let bytes = received.len();
         total_bytes += bytes as u128;
         let seq: Vec<u8> = overlap_buf.iter().copied().chain(received.into_iter()).collect();
@@ -151,7 +151,7 @@ fn process_chunk(seq: Vec<u8>, records: &mut impl Iterator<Item = Arc<Record>>, 
     if current_record.end_byte <= *total_bytes {
         let split_idx = seq.len() - (*total_bytes - current_record.end_byte) as usize;
         *overlap_buf = seq[split_idx..].to_vec();
-        println!("processed in distro: {:#?}, buf: {:#?}, end_idx: {}, atcual: {}", extract_str_from_bytes(&seq), extract_str_from_bytes(&overlap_buf), split_idx, current_record.end_byte);
+        //println!("processed in distro: {:#?}, buf: {:#?}, end_idx: {}, atcual: {}", extract_str_from_bytes(&seq), extract_str_from_bytes(&overlap_buf), split_idx, current_record.end_byte);
         chunk = ProcessedChunk {
             bytes: seq,
             id: current_record.id.clone(),
@@ -169,7 +169,7 @@ fn process_chunk(seq: Vec<u8>, records: &mut impl Iterator<Item = Arc<Record>>, 
     else {
         *overlap_buf = seq[0.max(seq.len().abs_diff(params.query_length))..].to_vec();
         chunk = ProcessedChunk {
-            end_byte: seq.len(),
+            end_byte: seq.len() - 1,
             bytes: seq,
             id: current_record.id.clone(),
             end_bit: 3,
@@ -195,7 +195,7 @@ fn _split_byte(byte: u8, split_idx: usize) -> (u8, u8) {
 }
 
 fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, scheme: Arc<ScoringScheme>, hit_sender: &mpsc::Sender<Hit>) -> Result<(), String> {
-    println!("received: {:#?}, {}", extract_str_from_bytes(&chunk.bytes[chunk.start_byte..=chunk.end_byte]), chunk.id);
+    //println!("received: {:#?}, {}, {}, {}, {}", extract_str_from_bytes(&chunk.bytes[chunk.start_byte..=chunk.end_byte]), chunk.id, chunk.bytes.len(), query.seq.len(), query.words.len()/4);
     for (i, slice1) in chunk.bytes[chunk.start_byte..=chunk.end_byte].windows(3).enumerate() {
         for (j, slice2) in query.words.iter().enumerate() {
             //println!("{}, {}", i, j);
@@ -204,14 +204,14 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 let mut score = scheme.hit * params.k as i16;
                 //println!("{},j: {}", i, j);
                 //println!("word: {:#?}", extract_str_from_bytes(slice2));
-                score += extend_left(&chunk.bytes[0.max(i - j)..i], &query.seq[..j]);
-                score += extend_right(&chunk.bytes[i..chunk.bytes.len().min(i + params.query_length - j)], &query.seq[j..]);
+                score += extend_left(&chunk.bytes[0.max(i - (j/4).min(i))..i], &query.seq[..j/4]);
+                score += extend_right(&chunk.bytes[i..chunk.bytes.len().min(i + params.query_length - j/4)], &query.seq[j/4..]);
                 if score >= params.extension_threshhold {
                     if let Err(e) = hit_sender.send(Hit {
                         id: chunk.id.clone(),
                         score: score,
-                        left: 0.max(i - j),
-                        right: chunk.bytes.len().min(i + params.query_length - j)
+                        left: 0.max(i - (j/4).min(i)),
+                        right: chunk.bytes.len().min(i + params.query_length - j/4)
                     }) 
                     {
                         println!("could not send hit info, {:#?}", e);

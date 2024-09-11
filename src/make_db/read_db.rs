@@ -11,7 +11,7 @@ pub fn read_compressed_db(path: &str) -> io::Result<String> {
         if bytes == 0 {
             break;
         }
-        println!("bytes read: {}", bytes);
+        //println!("bytes read: {}", bytes);
         let nts = extract_str_from_bytes(&buf[..bytes]);
         println!("{nts}");
         all_nts += &nts;
@@ -49,7 +49,7 @@ pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sen
         if bytes == 0 {
             break;
         }
-        println!("read: {:#?}", extract_str_from_bytes(&buf[..bytes]));
+        //println!("read: {:#?}", extract_str_from_bytes(&buf[..bytes]));
         sender.send(buf[..bytes].to_vec()).expect("couldnt send buf");
     }
 
