@@ -36,18 +36,19 @@ fn main() -> Result<(), String> {
     
     if test {
         let now = Instant::now();
-        let _ = generate_db("genomes/seq3.fna", "genomes/seq3/");
+        //println!("{}", args.db_file.split('.').nth(0).unwrap().to_string() + "/");
+        let _ = generate_db(&args.db_file, &(args.db_file.split('.').nth(0).unwrap().to_string() + "/"));
         println!("{:#?}", now.elapsed());
 
         let params = Params {
             k: 12,
-            extension_threshhold: 100,
+            extension_threshhold: 10,
             scanning_threshhold: 12,
             extension_length: 50,
             query_length: 0
         };
 
-        let _ = align("genomes/seq3/", &args.query_file, 10, params);
+        let _ = align(&(args.db_file.split('.').nth(0).unwrap().to_string() + "/"), &args.query_file, 1, params);
 
         return Ok(());
     }

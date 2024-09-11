@@ -1,6 +1,9 @@
 use std::{cmp::{min, max}, fs, io::{self, Read}, str, sync, vec};
+use crate::make_db::read_db::extract_str_from_bytes;
+
 use super::records::{SimpleRecord, Record};
 
+//TODO: make sure and bytes are calculated correctly in clean up and append_id
 struct Id {
     id: Vec<u8>,
     start: usize
@@ -46,12 +49,12 @@ fn clean_up(last_byte: Option<u8>, tx: &sync::mpsc::Sender<Vec<u8>>, records: &m
     if let Some(byte) = last_byte {
         tx.send(vec![byte]).expect("failed tp send bytes");
         let length = records.len() - 1;
-        records[length].end_byte = total_bytes - 1;
+        records[length].end_byte = total_bytes - 0; // - 1 
         records[length].end_bit = last_missing;
     }
     else {
         let length = records.len() - 1;
-        records[length].end_byte = total_bytes - 1;
+        records[length].end_byte = total_bytes - 0; // -1 
         records[length].end_bit = 3; 
     }
 }
@@ -71,6 +74,7 @@ fn handle_ids(buffer: &mut Vec<u8>, bytes: &mut usize, ids: &mut Vec<Id>) -> Opt
 
 fn ensure_filled_bytes(filtered: &mut Vec<u8>, last_byte: &mut Option<u8>, last_missing: &mut usize) -> Option<Vec<u8>> {
     // generates a byte sequence and handles remaining bytes
+    //TODO: fix
     if let Some(byte) = last_byte {
         if *last_missing >= filtered.len() {
             fill_byte(byte, &filtered);
@@ -85,7 +89,7 @@ fn ensure_filled_bytes(filtered: &mut Vec<u8>, last_byte: &mut Option<u8>, last_
             }
         }
         else {
-            let filler = filtered.split_off(*last_missing);
+            let filler = filtered.splice(0..*last_missing, Vec::default()).collect::<Vec<u8>>();
             fill_byte(byte, &filler);
             *last_missing = 0;
         }

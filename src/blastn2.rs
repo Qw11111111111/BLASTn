@@ -1,4 +1,4 @@
-use std::{io, sync::{mpsc, Arc}, thread::{self, JoinHandle}};
+use std::{io, sync::{mpsc, Arc}, thread::{self, JoinHandle}, time::Instant};
 
 use crate::make_db::{records::{SimpleRecord, Record}, parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db::{read_csv, parse_compressed_db_lazy, extract_str_from_bytes}};
 
@@ -21,7 +21,7 @@ struct ProcessedChunk {
     start_byte: usize
 }
 
-#[derive (Default)]
+#[derive (Default, Debug)]
 struct Hit {
     id: String,
     score: i16,
@@ -39,6 +39,7 @@ struct ScoringScheme {
 }
 
 pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, mut params: Params) -> io::Result<()> {
+    let parser = Instant::now();
     let mut query = parse_small_fasta(path_to_query)?;
     params.query_length = query.seq.len() / 4;
     if query.seq.len() % 4 != 0 {
@@ -51,12 +52,18 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, m
     let (raw_chunk_sender, raw_chunk_receiver) = mpsc::channel::<Vec<u8>>();
     let p = path_to_db.to_string();
     let reader: JoinHandle<io::Result<()>> = thread::spawn(move || {
-        parse_compressed_db_lazy(&p, 4, raw_chunk_sender)?;
+        parse_compressed_db_lazy(&p, 2048, raw_chunk_sender)?;
         Ok(())
     });
 
-    let scheme = Arc::new(ScoringScheme::default());
-
+    let scheme = Arc::new(ScoringScheme {
+        gap_penalty: -1,
+        hit: 5,
+        miss: -4,
+        lambda: 1.0,
+        k: 1.0
+    });
+    let worker = Instant::now();
     let mut worker_senders = Vec::default();
     let mut workers = Vec::default();
     let (h_tx, h_rx) = mpsc::channel::<Hit>();
@@ -69,31 +76,37 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, m
         let h_tx = h_tx.clone();
         workers.push(thread::spawn(move || {
             while let Ok(chunk) = rx.recv() {
-                let _ = scan(chunk, Arc::clone(&params), Arc::clone(&query), Arc::clone(&scheme), h_tx.clone());
+                let _ = scan(chunk, Arc::clone(&params), Arc::clone(&query), Arc::clone(&scheme), &h_tx);
             }
         }));
         worker_senders.push(tx);
     }
-
+    let distro = Instant::now();
     let params = Arc::clone(&params);
     let distributor = thread::spawn(move || {
         distribute_chunks(raw_chunk_receiver, worker_senders, params, records);
     });
-    
+    println!("distro: {:?}", distro.elapsed());
     let hit_proccessor = thread::spawn(move || {
-        while let Ok(_hit) = h_rx.recv() {
-
-        }
+        process_hits(h_rx);
     });
 
     let _ = reader.join();
+    println!("parser: {:#?}", parser.elapsed());
     let _ = distributor.join();
     for handle in workers {
         let _ = handle.join();
     }
+    println!("workers: {:?}", worker.elapsed());
+    drop(h_tx);
     let _ = hit_proccessor.join();
-
     Ok(())
+}
+
+fn process_hits(rx: mpsc::Receiver<Hit>) {
+    while let Ok(hit) = rx.recv() {
+        println!("hit received: {:#?}", hit);
+    }
 }
 
 fn distribute_chunks(chunk_receiver: mpsc::Receiver<Vec<u8>>, distributors: Vec<mpsc::Sender<ProcessedChunk>>, params: Arc<Params>, mut records: impl Iterator<Item = Arc<Record>>) {
@@ -113,6 +126,7 @@ fn distribute_chunks(chunk_receiver: mpsc::Receiver<Vec<u8>>, distributors: Vec<
                 not_finished = false;
             },
         }
+        println!("received in distro: {:#?}", extract_str_from_bytes(&received));
         let bytes = received.len();
         total_bytes += bytes as u128;
         let seq: Vec<u8> = overlap_buf.iter().copied().chain(received.into_iter()).collect();
@@ -137,6 +151,7 @@ fn process_chunk(seq: Vec<u8>, records: &mut impl Iterator<Item = Arc<Record>>, 
     if current_record.end_byte <= *total_bytes {
         let split_idx = seq.len() - (*total_bytes - current_record.end_byte) as usize;
         *overlap_buf = seq[split_idx..].to_vec();
+        println!("processed in distro: {:#?}, buf: {:#?}, end_idx: {}, atcual: {}", extract_str_from_bytes(&seq), extract_str_from_bytes(&overlap_buf), split_idx, current_record.end_byte);
         chunk = ProcessedChunk {
             bytes: seq,
             id: current_record.id.clone(),
@@ -150,13 +165,9 @@ fn process_chunk(seq: Vec<u8>, records: &mut impl Iterator<Item = Arc<Record>>, 
         if let Some(rec) = records.next() {
             *current_record = rec;
         }
-        else {
-            //println!("wtf");
-        }
     }
     else {
-        print!("huhu");
-        *overlap_buf = seq[0.max(seq.len() - params.query_length)..].to_vec();
+        *overlap_buf = seq[0.max(seq.len().abs_diff(params.query_length))..].to_vec();
         chunk = ProcessedChunk {
             end_byte: seq.len(),
             bytes: seq,
@@ -164,7 +175,7 @@ fn process_chunk(seq: Vec<u8>, records: &mut impl Iterator<Item = Arc<Record>>, 
             end_bit: 3,
             start_in_rec: start_in_rec,
             start_bit: start as usize,
-            start_byte: 0.max(params.query_length - params.k)
+            start_byte: 0.max(params.query_length - params.k / 4)
         };
         *bytes_in_rec += received as u128;
     }
@@ -183,13 +194,16 @@ fn _split_byte(byte: u8, split_idx: usize) -> (u8, u8) {
     (byte1, byte2)
 }
 
-fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, scheme: Arc<ScoringScheme>, hit_sender: mpsc::Sender<Hit>) -> Result<(), String> {
+fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, scheme: Arc<ScoringScheme>, hit_sender: &mpsc::Sender<Hit>) -> Result<(), String> {
     println!("received: {:#?}, {}", extract_str_from_bytes(&chunk.bytes[chunk.start_byte..=chunk.end_byte]), chunk.id);
-    for (i, slice1) in chunk.bytes.windows(3).enumerate() {
+    for (i, slice1) in chunk.bytes[chunk.start_byte..=chunk.end_byte].windows(3).enumerate() {
         for (j, slice2) in query.words.iter().enumerate() {
-            println!("{}, {}", i, j);
+            //println!("{}, {}", i, j);
+            //println!("word: {:#?}\nseq: {:#?}", extract_str_from_bytes(slice2), extract_str_from_bytes(slice1));
             if slice1[0] == slice2[0] && slice1[1] == slice2[1] && slice1[2] == slice2[2] { //TODO: rewrite this to extend hits with score T
                 let mut score = scheme.hit * params.k as i16;
+                //println!("{},j: {}", i, j);
+                //println!("word: {:#?}", extract_str_from_bytes(slice2));
                 score += extend_left(&chunk.bytes[0.max(i - j)..i], &query.seq[..j]);
                 score += extend_right(&chunk.bytes[i..chunk.bytes.len().min(i + params.query_length - j)], &query.seq[j..]);
                 if score >= params.extension_threshhold {
@@ -200,7 +214,8 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                         right: chunk.bytes.len().min(i + params.query_length - j)
                     }) 
                     {
-                        return Err(format!("could not send hit: {:#?}", e));
+                        println!("could not send hit info, {:#?}", e);
+                        //return Err(format!("could not send hit: {:#?}", e));
                     }
                 }
             }
