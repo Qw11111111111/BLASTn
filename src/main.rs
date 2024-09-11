@@ -32,7 +32,7 @@ fn get_db(path: &str, k: usize) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
 fn main() -> Result<(), String> {
     //TODO: Rewrite the search to match the procedure outlined here: https://en.wikipedia.org/wiki/BLAST_(biotechnology), as the current implementation is rather naive.
     let args = Args::parse();
-    let test = true;
+    let test = false;
     
     if test {
         let now = Instant::now();
