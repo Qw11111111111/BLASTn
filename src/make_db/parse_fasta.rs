@@ -74,7 +74,6 @@ fn handle_ids(buffer: &mut Vec<u8>, bytes: &mut usize, ids: &mut Vec<Id>) -> Opt
 
 fn ensure_filled_bytes(filtered: &mut Vec<u8>, last_byte: &mut Option<u8>, last_missing: &mut usize) -> Option<Vec<u8>> {
     // generates a byte sequence and handles remaining bytes
-    //TODO: fix
     if let Some(byte) = last_byte {
         if *last_missing >= filtered.len() {
             fill_byte(byte, &filtered);
@@ -254,13 +253,11 @@ pub fn parse_small_fasta(path: &str) -> io::Result<SimpleRecord> {
     }
     rec.id = String::from_utf8(query).unwrap();
     
-    let mut res = Vec::default();
-    for &item in &rec.seq {
-        if item != 10 {
-            res.push(item);
-        }
-    }
-    rec.seq = res;
+    rec.seq = rec.seq
+        .clone()
+        .into_iter()
+        .filter(|i| *i != 10)
+        .collect::<Vec<u8>>();
 
     Ok(rec)
 }
