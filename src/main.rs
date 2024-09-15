@@ -31,7 +31,7 @@ fn get_db(path: &str, k: usize) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
 
 fn main() -> Result<(), String> {
     let args = Args::parse();
-    let test = !false;
+    let test = false;
     
     if test {
         let now = Instant::now();
