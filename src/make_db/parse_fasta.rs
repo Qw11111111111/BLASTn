@@ -3,7 +3,6 @@ use std::{cmp::{min, max}, fs, io::{self, Read}, str, sync, vec};
 
 use super::records::{SimpleRecord, Record};
 
-//TODO: make sure and bytes are calculated correctly in clean up and append_id
 struct Id {
     id: Vec<u8>,
     start: usize
@@ -49,12 +48,12 @@ fn clean_up(last_byte: Option<u8>, tx: &sync::mpsc::Sender<Vec<u8>>, records: &m
     if let Some(byte) = last_byte {
         tx.send(vec![byte]).expect("failed tp send bytes");
         let length = records.len() - 1;
-        records[length].end_byte = total_bytes - 0; // - 1 
-        records[length].end_bit = last_missing;
+        records[length].end_byte = total_bytes;
+        records[length].end_bit = 3 - last_missing;
     }
     else {
         let length = records.len() - 1;
-        records[length].end_byte = total_bytes - 0; // -1 
+        records[length].end_byte = total_bytes - 1;
         records[length].end_bit = 3; 
     }
 }
@@ -185,6 +184,9 @@ fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, Option<usize>) {
 }
 
 pub fn parse_and_compress_fasta(path: &str, chunk_size: usize, tx: sync::mpsc::Sender<Vec<u8>>) -> io::Result<Vec<Record>> {
+    // generates a byte stream, which gets saved to path/seq.bin and a csv file, which gets saved to path/records.csv.
+    // records.csv contains a list with all records, eahc listing their start byte (inclusive), start_bit (inclusive), end_byte (inclusive) and end_bit (inclusive)
+    // the bits are enumerated according to this scheme: 0b xx xx xx xx, where each 2 bits xx are counted as one and are numbered 0,1,2,3
     let file = fs::File::open(path)?;
     let mut reader = io::BufReader::new(file);
     let mut records: Vec<Record> = Vec::default();
