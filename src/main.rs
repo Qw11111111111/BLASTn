@@ -40,9 +40,9 @@ fn main() -> Result<(), String> {
 
         let params = Params {
             k: 12,
-            extension_threshhold: 40,
-            scanning_threshhold: 40,
-            extension_length: 1,
+            extension_threshhold: 60,
+            scanning_threshhold: 60,
+            extension_length: 8,
             query_length: 0
         };
 
