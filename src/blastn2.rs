@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, sync::{mpsc, Arc}, thread::{self, JoinHandle}, time::Instant};
 
-use crate::{make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db::{bytes_to_chars, parse_compressed_db_lazy, read_csv}, records::{Record, SimpleRecord}}, dust::Dust};
+use crate::{make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db::{bytes_to_chars, parse_compressed_db_lazy, read_csv, extract_str_from_bytes}, records::{Record, SimpleRecord}}, dust::Dust, blastn::convert_to_ascii};
 
 //TODO: -precalculate all div_ceils, where possible
 //      -implement support for word lengths k where k % 4 != 0
@@ -44,10 +44,12 @@ impl HSP {
     fn try_join(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>, max_d: usize) -> bool {
         //tries to joins other to the right side of self
         //TODO: expand logic to all cases
-        if other.is_joined || self.id != other.id || self.idx_in_query > other.idx_in_query || (self.idx_in_query + self.word.len()) < other.idx_in_query + 1 || (self.idx_in_record + self.db_seq.len()).abs_diff(other.idx_in_record) > max_d || self.idx_in_record > other.idx_in_record || (self.idx_in_record + self.db_seq.len() >=  other.idx_in_record + other.db_seq.len() && self.idx_in_query + self.word.len() >= other.idx_in_query + other.word.len()) {
+        //println!("trying to join {:#?} to {:#?}", other, self);
+        if other.is_joined || self.id != other.id || self.idx_in_query > other.idx_in_query || (self.idx_in_query + self.word.len()) < other.idx_in_query + max_d || (self.idx_in_record + self.db_seq.len()) < other.idx_in_record + 1 || self.idx_in_record > other.idx_in_record || (self.idx_in_record + self.db_seq.len() >=  other.idx_in_record + other.db_seq.len() && self.idx_in_query + self.word.len() >= other.idx_in_query + other.word.len()) {
+            //println!("flase");
             return false;
         }
-        if (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query) > 0 {
+        if self.idx_in_query + self.word.len() < other.idx_in_query && (!self.is_extended || !other.is_extended) {
             self.try_join_separate(other, scheme).expect("could not join separate");
         }
         else {
@@ -62,9 +64,6 @@ impl HSP {
         let other_score = get_score(&other.word[..overlap], &other.db_seq[other.padding_left..other.padding_left + overlap], scheme);
 
         if other.idx_in_record + other.db_seq.len() > self.idx_in_record + self.db_seq.len() {
-            if self.idx_in_record - other.idx_in_record > self.db_seq.len() {
-                println!("wtf, {}, {}, {}, {}", self.idx_in_record, other.idx_in_record, self.db_seq.len(), other.db_seq.len());
-            }
             self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
             self.padding_right = other.padding_right;
         }
@@ -86,8 +85,10 @@ impl HSP {
         Ok(())
     }
 
-    fn try_join_separate(&mut self, _other: &mut HSP, _scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
-
+    fn try_join_separate(&mut self, other: &mut HSP, _scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
+        other.is_extended = true;
+        other.is_joined = true;
+        self.is_extended = true;
         Ok(())
     }
 
@@ -182,23 +183,27 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, _query: Arc<SimpleRecord>, scheme:
     let mut all_hits: Vec<Rc<RefCell<HSP>>> = Vec::default();
     while let Ok(hits) = rx.recv() {
         h += hits.len();
-        //for h in &hits {
-            //println!("seq: {:?}", h.word.iter().map(|i| convert_to_ascii(i)).collect::<String>());
-            //println!("db_: {:?}", h.db_seq.iter().map(|i| convert_to_ascii(i)).collect::<String>());
-            //println!("left: {}, right: {}", h.padding_left, h.padding_right);
-        //}
+        /*
+        for h in &hits {
+            println!("seq: {:?}", h.word.iter().map(|i| convert_to_ascii(i)).collect::<String>());
+            println!("db_: {:?}", h.db_seq.iter().map(|i| convert_to_ascii(i)).collect::<String>());
+            println!("left: {}, right: {}", h.padding_left, h.padding_right);
+        }
+        */
         all_hits.extend(hits.into_iter().map(|h| Rc::new(RefCell::new(h))));
         join_hits(&all_hits, &scheme, 5);
     }
-    println!("{} hits found, {} joined hits", h, all_hits.len());
+    println!("{} hits found, {} joined hits", h, all_hits.iter().map(|i| if i.borrow().is_joined {0} else {1}).sum::<i32>());
 }
 
 fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, max_distance: usize) {
     //using a greedy recursive approach
+    //TODO: optimize this!! way too slow for many hits
     for i in 0..hits.len() - 1 {
         if hits[i].borrow().is_joined {
             continue;
         }
+        //println!("joining");
         let h = Rc::clone(&hits[i]);
         join_left(&hits[..i], h, scheme, max_distance);
         let h = Rc::clone(&hits[i]);
@@ -220,7 +225,7 @@ fn join_left(hits: &[Rc<RefCell<HSP>>], subject: Rc<RefCell<HSP>>, scheme: &Arc<
     }  
     */
     let h: Rc<RefCell<HSP>>;
-    if hits[hits.len() - 1].borrow_mut().try_join(&mut subject.borrow_mut(), scheme, 5) {
+    if hits[hits.len() - 1].borrow_mut().try_join(&mut subject.borrow_mut(), scheme, max_distance) {
         h = Rc::clone(&hits[hits.len() - 1]);
     }
     else {
@@ -235,7 +240,7 @@ fn join_right(hits: &[Rc<RefCell<HSP>>], subject: Rc<RefCell<HSP>>, scheme: &Arc
         return;
     }
     let h: Rc<RefCell<HSP>>;
-    if subject.borrow_mut().try_join(&mut hits[0].borrow_mut(), scheme, 5) {
+    if subject.borrow_mut().try_join(&mut hits[0].borrow_mut(), scheme, max_distance) {
         h = Rc::clone(&hits[0]);
     }
     else {
@@ -365,7 +370,8 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
             } 
             //TODO: maybe calculate E-value and use that
             // send a hit   
-            let seq = bytes_to_chars(&chunk.bytes[0.max((i + chunk.start_byte - params.extension_length.div_ceil(4)).min(i + chunk.start_byte))..chunk.bytes.len().min(i + params.extension_length.div_ceil(4) + params.k.div_ceil(4) + chunk.start_byte)], if chunk.bytes.len().min(i + params.extension_length.div_ceil(4) + params.k.div_ceil(4) + chunk.start_byte) == chunk.bytes.len() {chunk.end_bit} else {3}, chunk.start_bit);
+            //TODO: check the range start in the following line
+            let seq = bytes_to_chars(&chunk.bytes[0.max(i + chunk.start_byte - (params.extension_length.div_ceil(4)).min(i + chunk.start_byte))..chunk.bytes.len().min(i + params.extension_length.div_ceil(4) + params.k.div_ceil(4) + chunk.start_byte)], if chunk.bytes.len().min(i + params.extension_length.div_ceil(4) + params.k.div_ceil(4) + chunk.start_byte) == chunk.bytes.len() {chunk.end_bit} else {3}, chunk.start_bit);
             hits.push(HSP {
                 id: chunk.id.clone(),
                 score: score,
@@ -374,7 +380,7 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 db_seq: seq,
                 word: bytes_to_chars(&query.words[j], 3, 0),
                 idx_in_query: j,
-                idx_in_record: chunk.start_in_rec as usize + i - params.extension_length.min(chunk.start_byte - 1),
+                idx_in_record: chunk.start_in_rec as usize + i * 4 + chunk.start_byte * 4 - params.extension_length.min((chunk.start_byte + i) * 4),
                 is_extended: false,
                 is_joined: false
                 });
