@@ -361,12 +361,5 @@ impl fmt::Display for Summary {
 }
 
 pub fn convert_to_ascii(index: &u8) -> String {
-    match index {
-        65 => "A".into(),
-        67 => "C".into(),
-        71 => "G".into(),
-        84 => "T".into(),
-        78 => "N".into(),
-        _ => "-".into(),
-    }
+    char::from_u32(*index as u32).unwrap().to_string()
 }

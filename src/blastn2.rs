@@ -12,7 +12,9 @@ pub struct Params {
     pub extension_threshhold: i16,
     pub scanning_threshhold: i16,
     pub extension_length: usize,
-    pub query_length: usize
+    pub verbose: bool,
+    pub masking_threshhold: f64,
+    pub masking: bool
 }
 
 #[derive (Default)]
@@ -63,9 +65,7 @@ impl HSP {
     fn try_join(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_d: usize) -> bool {
         //tries to joins other to the right side of self
         //TODO: expand logic to all cases
-        //println!("trying to join {:#?} to {:#?}", other, self);
-        if other.is_joined || self.id != other.id || self.idx_in_query > other.idx_in_query || self.idx_in_record + self.db_seq.len() < other.idx_in_record - 1 || self.idx_in_record > other.idx_in_record { // || (self.idx_in_record + self.db_seq.len() >=  other.idx_in_record + other.db_seq.len() && self.idx_in_query + self.word.len() >= other.idx_in_query + other.word.len()) {
-            //println!("flase");
+        if other.is_joined || self.id != other.id || self.idx_in_query > other.idx_in_query || self.idx_in_record + self.db_seq.len() < other.idx_in_record - 1 || self.idx_in_record > other.idx_in_record {
             return false;
         }
         if self.idx_in_query + self.word.len() >= other.idx_in_query && self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left {
@@ -105,8 +105,6 @@ impl HSP {
             self.word.extend_from_slice(&other.word[overlap..]);
         }
         other.is_joined = true;
-        //other.is_extended = true;
-        //self.is_extended = true;
         Ok(())
     }
 
@@ -188,7 +186,6 @@ impl HSP {
             self.padding_right -= 1;
             return false;
         }
-        //println!("{}, {}", self.padding_left + self.word.len(), self.idx_in_query + self.word.len() + 1);
         if self.db_seq[self.padding_left + self.word.len()] == query.seq[self.idx_in_query + self.word.len() + 1] {
             self.score += scheme.hit;
             self.word.push(query.seq[self.idx_in_query + self.word.len() + 1]);
@@ -253,26 +250,36 @@ impl HSP {
 
 impl fmt::Display for HSP {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Hit in db {}", self.id)?;
         writeln!(f, "score: {}", self.score)?;
         writeln!(f, "E value: {:e}", self.e_val)?;
-        writeln!(f, "start_idx: {}, end_index: {}", self.idx_in_query, self.idx_in_query + self.word.len())?;
-        writeln!(f, "start_idx rec: {}", self.idx_in_record)?;
+        writeln!(f, "start_idx query: {}", self.idx_in_query)?;
+        writeln!(f, "start_idx rec: {}", self.idx_in_record + self.padding_left)?;
+        writeln!(f, "length: {}", self.word.len())?;
         writeln!(f, "joined: {}, extended: l{} r{}", self.is_joined, self.is_extended_left, self.is_extended_right)?;
-        for b in &self.word {
-            write!(f, "{}", convert_to_ascii(b))?;
-        }
-        writeln!(f, "")?;
-        for i in 0..self.word.len() {
-            if self.word[i] == self.db_seq[self.padding_left + i] {
-                write!(f, "|")?;
+        let chars_per_line = 50;
+        let max_chars = 200;
+        for j in (0..self.word.len().min(max_chars)).step_by(chars_per_line) {
+            write!(f, "Query: ")?;
+            for b in &self.word[j..self.word.len().min(j + chars_per_line)] {
+                write!(f, "{}", convert_to_ascii(b))?;
             }
-            else {
-                write!(f, " ")?;
+            writeln!(f, "")?;
+            write!(f, "       ")?;
+            for i in j..self.word.len().min(j + chars_per_line) {
+                if self.word[i] == self.db_seq[self.padding_left + i] {
+                    write!(f, "|")?;
+                }
+                else {
+                    write!(f, " ")?;
+                }
             }
-        }
-        writeln!(f, "")?;
-        for b in &self.db_seq[self.padding_left..self.db_seq.len() - self.padding_right] {
-            write!(f, "{}", convert_to_ascii(b))?;
+            writeln!(f, "")?;
+            write!(f, "DB:    ")?;
+            for b in &self.db_seq[self.padding_left + j..(self.padding_left + self.word.len()).min(j + self.padding_left + chars_per_line)] {
+                write!(f, "{}", convert_to_ascii(b))?;
+            }
+            writeln!(f, "")?;
         }
         Ok(())
     }
@@ -288,13 +295,12 @@ struct ScoringScheme {
     k: f64
 }
 
-pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, mut params: Params) -> io::Result<()> {
+pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, params: Params) -> io::Result<()> {
     let total = Instant::now();
     let parser = Instant::now();
     let mut query = parse_small_fasta(path_to_query)?;
-    params.query_length = query.seq.len();
 
-    query.seq = Dust::new(64, 1.0, query.seq).mask_regions();
+    query.seq = Dust::new(64, params.masking_threshhold, query.seq).mask_regions();
 
     let params = Arc::new(params);
     get_query_words(params.k, &mut query);
@@ -316,12 +322,12 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, m
     });
 
     let scheme = Arc::new(ScoringScheme {
-        gap_penalty: -5,
-        gap_extension: -1,
+        gap_penalty: -8,
+        gap_extension: -6,
         hit: 5,
         miss: -4,
-        lambda: 1.0,
-        k: 1.0
+        lambda: 0.146,
+        k: 0.039
     });
     let worker = Instant::now();
     let mut worker_senders = Vec::default();
@@ -330,13 +336,13 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, m
     let query = Arc::new(query);
     for _ in 0..num_workers {
         let (tx, rx) = mpsc::channel::<ProcessedChunk>();
-        let params = Arc::clone(&params);
+        let params_ = Arc::clone(&params);
         let query = Arc::clone(&query);
         let scheme = Arc::clone(&scheme);
         let h_tx = h_tx.clone();
         workers.push(thread::spawn(move || {
             while let Ok(chunk) = rx.recv() {
-                let _ = scan(chunk, Arc::clone(&params), Arc::clone(&query), Arc::clone(&scheme), &h_tx);
+                let _ = scan(chunk, Arc::clone(&params_), Arc::clone(&query), Arc::clone(&scheme), &h_tx);
             }
         }));
         worker_senders.push(tx);
@@ -346,23 +352,26 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, m
     let distributor = thread::spawn(move || {
         distribute_chunks(raw_chunk_receiver, worker_senders, params_, records);
     });
+    let params_ = Arc::clone(&params);
     let process = Instant::now();
     let hit_proccessor = thread::spawn(move || {
-        process_hits(h_rx, query, scheme, params, info);
+        process_hits(h_rx, query, scheme, params_, info);
     });
 
     let _ = reader.join();
-    println!("parser: {:?}", parser.elapsed());
     let _ = distributor.join();
-    println!("distributor: {:?}", distributor_t.elapsed());
     for handle in workers {
         let _ = handle.join();
     }
-    println!("workers: {:?}", worker.elapsed());
     drop(h_tx);
     let _ = hit_proccessor.join();
-    println!("process: {:?}", process.elapsed());
-    println!("total: {:?}", total.elapsed());
+    if params.verbose {
+        println!("parser: {:?}", parser.elapsed());
+        println!("distributor: {:?}", distributor_t.elapsed());
+        println!("workers: {:?}", worker.elapsed());
+        println!("process: {:?}", process.elapsed());
+        println!("total: {:?}", total.elapsed());
+    }
     Ok(())
 }
 
@@ -372,13 +381,6 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
     let mut all_hits: Vec<Rc<RefCell<HSP>>> = Vec::default();
     while let Ok(hits) = rx.recv() {
         h += hits.len();
-        /*
-        for h in &hits {
-            println!("seq: {:?}", h.word.iter().map(|i| convert_to_ascii(i)).collect::<String>());
-            println!("db_: {:?}", h.db_seq.iter().map(|i| convert_to_ascii(i)).collect::<String>());
-            println!("left: {}, right: {}", h.padding_left, h.padding_right);
-        }
-        */
         all_hits.extend(hits.into_iter().map(|h| Rc::new(RefCell::new(h))));
         join_hits(&all_hits, &scheme, &params, &query, 5);
     }
@@ -401,6 +403,7 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
     }).collect::<Vec<()>>();
     all_hits.sort_by(|a, b| b.borrow().e_val.partial_cmp(&a.borrow().e_val).unwrap());
     println!("{} hits found, {} non joined hits", h, all_hits.iter().map(|i| if i.borrow().is_joined {0} else {1}).sum::<i32>());
+    println!("\nBest hit: ");
     print!("\n{}\n", all_hits.last().unwrap_or(&Rc::new(RefCell::new(HSP::default()))).borrow());
 }
 
@@ -411,7 +414,6 @@ fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, params: &Ar
         if hits[i].borrow().is_joined {
             continue;
         }
-        //println!("joining");
         let h = Rc::clone(&hits[i]);
         join_left(&hits[..i], h, scheme, params, query, max_distance);
         let h = Rc::clone(&hits[i]);
@@ -424,14 +426,6 @@ fn join_left(hits: &[Rc<RefCell<HSP>>], subject: Rc<RefCell<HSP>>, scheme: &Arc<
     if hits.len() == 0 {
         return;
     }
-    
-    /*
-    for h in hits.iter().rev() {
-        if h.borrow_mut().try_join(&subject.borrow_mut(), scheme) {
-            subject.replace(h.borrow().clone()); // OPTIMIZE
-        }
-    }  
-    */
     let h: Rc<RefCell<HSP>>;
     if hits[hits.len() - 1].borrow_mut().try_join(&mut subject.borrow_mut(), scheme, params, query, max_distance) {
         h = Rc::clone(&hits[hits.len() - 1]);
@@ -562,10 +556,6 @@ fn _split_byte(byte: u8, split_idx: usize) -> (u8, u8) {
 
 fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, scheme: Arc<ScoringScheme>, hit_sender: &mpsc::Sender<Vec<HSP>>) -> Result<(), String> {
     let mut hits = Vec::default();
-    //println!("b: {:?}, end: {}, start: {}, bit: {}", extract_str_from_bytes(&chunk.bytes), chunk.end_byte, chunk.start_byte, chunk.end_bit);
-    //let mut  s = bytes_to_chars(&[chunk.bytes[chunk.start_byte]], 3, chunk.start_bit);
-    //s.extend(&bytes_to_chars(&chunk.bytes[chunk.start_byte + 1..=chunk.end_byte], chunk.end_bit, 0));
-    //println!("s: {:?}", s.iter().map(|i| convert_to_ascii(i)).collect::<String>());
     for (i, slice1) in chunk.bytes[chunk.start_byte..=chunk.end_byte].windows(3).enumerate() {
         for (j, slice2) in query.words.iter().enumerate() {
             if !(slice1[0] == slice2[0] && slice1[1] == slice2[1]) {
@@ -598,7 +588,7 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
     }
     if hits.len() > 0 {
         if let Err(_e) = hit_sender.send(hits) {
-            //println!("could not send hit info, {:#?}", e);
+            //eprintln!("could not send hit info, {:#?}", e);
         }
     }
     Ok(())
@@ -609,7 +599,6 @@ fn _get_score_extension(_s1: &[u8], _s2: &[u8], _scheme: &Arc<ScoringScheme>, _n
 }
 
 fn get_score(s1: &[u8], s2: &[u8], scheme: &Arc<ScoringScheme>) -> i16 {
-    //println!("{}, {}, {}", s1.len() == s2.len(), s1.len(), s2.len());
     (0..s1.len()).map(|i| get_bitwise_score(&s1[i], &s2[i], scheme, 4)).sum()
 }
 
@@ -644,7 +633,5 @@ fn get_query_words(k: usize, query: &mut SimpleRecord) {
         })
         .collect();
     query.k = k;
-    println!("{}", query.words.len());
-    //query.seq = parse_to_bytes(&query.seq);
 }
 

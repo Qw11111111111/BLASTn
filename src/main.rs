@@ -13,7 +13,8 @@ use std::{
     io::{stdin, Read}, 
     sync::{Arc, Mutex}, 
     time::Instant,
-    collections::{HashMap, BTreeMap}
+    collections::{HashMap, BTreeMap},
+    fs
 };
 
 use blastn::{convert_to_ascii, BLASTn, Searcher};
@@ -35,28 +36,37 @@ fn main() -> Result<(), String> {
     
     if test {
         let now = Instant::now();
-        let _ = generate_db(&args.db_file, &(args.db_file.split('.').nth(0).unwrap().to_string() + "/"));
-        println!("{:?}", now.elapsed());
+        if args.db_file.starts_with('.') {
+            eprintln!("DB Path should not start with a . as that case is currently not handled correctly");
+            return Ok(());
+        }
+        let p = &(args.db_file.split('.').nth(0).unwrap().to_string() + "/");
+        if fs::exists(p).is_err() || !fs::exists(p).unwrap() {
+            let _ = generate_db(&args.db_file, p);
+            println!("{:?}", now.elapsed());
+        }
 
         let params = Params {
-            k: 12,
+            k: args.length,
             extension_threshhold: 30,
-            scanning_threshhold: 60,
+            scanning_threshhold: if args.threshhold % 4 == 0 {args.threshhold as i16} else {12},
             extension_length: 64,
-            query_length: 0
+            verbose: args.verbose,
+            masking_threshhold: args.masking_threshold,
+            masking: !args.no_masking
         };
 
         let _ = align(&(args.db_file.split('.').nth(0).unwrap().to_string() + "/"), &args.query_file, 20, params);
 
         return Ok(());
     }
-    let mut t = args.threshold;
+    let mut t = args.threshhold;
         if t > args.length {
             t = args.length;
         }
 
     if args.recursive > 1{
-        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, !args.mask_no_low_complexity)?;
+        let best_hits = benchmark(args.recursive, &args.query_file, &args.db_file, &t, &args.length, args.masking_threshold, !args.no_masking)?;
         
         let mut buf = [0, 0];
         loop {
@@ -85,7 +95,7 @@ fn main() -> Result<(), String> {
         let db_kmers = get_db(&args.db_file, args.length);
         println!("\n{:#?} db built", now.elapsed());
         let db_reader = Reader::from_file(&args.db_file).unwrap();
-        let mut blastn = BLASTn::new(db_reader.records(), Arc::from(res), args.threshold, args.threshold, args.length);
+        let mut blastn = BLASTn::new(db_reader.records(), Arc::from(res), args.threshhold, args.threshhold, args.length);
 
         let now = Instant::now();
 
@@ -106,7 +116,7 @@ fn main() -> Result<(), String> {
 
     
     let res: Vec<u8>;
-    if !args.mask_no_low_complexity {
+    if !args.no_masking {
         let mut dust = Dust::new(64, args.masking_threshold, query.seq().to_vec());
         res = dust.mask_regions();
     }

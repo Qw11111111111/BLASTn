@@ -12,11 +12,11 @@ pub struct Args {
     pub db_file: String,
 
     /// threshold for seeding
-    #[arg(short, long, default_value = "11")]
-    pub threshold: usize,
+    #[arg(short, long, default_value = "60")]
+    pub threshhold: usize,
 
     /// length of word durign seeding
-    #[arg(short, long, default_value = "11")]
+    #[arg(short, long, default_value = "12")]
     pub length: usize,
 
     /// Additional printout during run time
@@ -33,7 +33,7 @@ pub struct Args {
 
     /// do not mask low complexity regions with DUST
     #[arg(short, long, default_value = "false")]
-    pub mask_no_low_complexity: bool,
+    pub no_masking: bool,
 
     /// Threshold for a sequence to be masked
     #[arg(long, default_value = "1.0")]
