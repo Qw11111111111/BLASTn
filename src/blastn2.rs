@@ -4,6 +4,7 @@ use crate::{make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db:
 
 //TODO: -precalculate all div_ceils, where possible
 //      -implement support for word lengths k where k % 4 != 0
+//      -implement support for CLI flags
 //TODO: -No need to keep actual strings in HSP. Just keep track of idx in query, current length and gap indeces.
 
 pub struct Params {
@@ -258,6 +259,19 @@ impl fmt::Display for HSP {
         writeln!(f, "start_idx rec: {}", self.idx_in_record)?;
         writeln!(f, "joined: {}, extended: l{} r{}", self.is_joined, self.is_extended_left, self.is_extended_right)?;
         for b in &self.word {
+            write!(f, "{}", convert_to_ascii(b))?;
+        }
+        writeln!(f, "")?;
+        for i in 0..self.word.len() {
+            if self.word[i] == self.db_seq[self.padding_left + i] {
+                write!(f, "|")?;
+            }
+            else {
+                write!(f, " ")?;
+            }
+        }
+        writeln!(f, "")?;
+        for b in &self.db_seq[self.padding_left..self.db_seq.len() - self.padding_right] {
             write!(f, "{}", convert_to_ascii(b))?;
         }
         Ok(())
