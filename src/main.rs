@@ -31,7 +31,7 @@ fn get_db(path: &str, k: usize) -> HashMap<usize, BTreeMap<u64, Vec<usize>>> {
 
 fn main() -> Result<(), String> {
     let args = Args::parse();
-    let test = false;
+    let test = !false;
     
     if test {
         let now = Instant::now();
@@ -40,9 +40,9 @@ fn main() -> Result<(), String> {
 
         let params = Params {
             k: 12,
-            extension_threshhold: 60,
+            extension_threshhold: 30,
             scanning_threshhold: 60,
-            extension_length: 8,
+            extension_length: 64,
             query_length: 0
         };
 

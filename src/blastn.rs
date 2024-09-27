@@ -367,6 +367,6 @@ pub fn convert_to_ascii(index: &u8) -> String {
         71 => "G".into(),
         84 => "T".into(),
         78 => "N".into(),
-        _ => "?".into(),
+        _ => "-".into(),
     }
 }

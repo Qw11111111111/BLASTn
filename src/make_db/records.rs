@@ -37,6 +37,11 @@ impl VecRecord {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.current = 0;
+        self.current_record = Arc::clone(&self.records[0]);
+    }
+
     pub fn push(&mut self, record: Record) {
         self.records.push(Arc::new(record));
     }
