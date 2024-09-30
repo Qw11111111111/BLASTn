@@ -5,7 +5,8 @@ use crate::{make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db:
 //TODO: -precalculate all div_ceils, where possible
 //      -implement support for word lengths k where k % 4 != 0
 //      -implement support for CLI flags
-//TODO: -No need to keep actual strings in HSP. Just keep track of idx in query, current length and gap indeces.
+//      -optimize
+//TODO: -No need to keep actual strings in HSP. Just keep track of idx in query, current length and gap indices.
 
 pub struct Params {
     pub k: usize,
@@ -66,39 +67,22 @@ impl HSP {
         //TODO: refactor this shit
         //tries to joins other to the right side of self
         //TODO: expand logic to all cases
-        //println!("try join, {:?}, {:?}", self, other);
 
         if other.is_joined || 
         self.id != other.id || 
         (self.idx_in_query > other.idx_in_query || self.idx_in_query + self.word.len() >= other.idx_in_query + other.word.len()) || 
         (self.idx_in_record + self.padding_left > other.idx_in_record + other.padding_left || self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left) {
-            //println!("false");
             return false;
         }
-        /*
-        if other.is_joined || self.id != other.id || self.idx_in_query > other.idx_in_query || (self.idx_in_record > other.idx_in_record || (other.idx_in_query >= self.idx_in_query && self.idx_in_record >= other.idx_in_record)) { // self.score < params.extension_threshhold
-            println!("flase false");
-            return false;
-        }
-        */
-        /*
-        if self.idx_in_query + self.word.len() >= other.idx_in_query && self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left {
-            println!("overlap, {:?}, {:?}, sefl other", self, other);
-            self.join_overlapping(other, scheme).expect("could not join overlapping");
-        }
-        */
         let d_in_rec = (self.idx_in_record + self.padding_left + self.word.len()).abs_diff(other.idx_in_record + other.padding_left);
         let d_in_q = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
         if d_in_q > d_in_rec {
-            //println!("false2");
             return false;
         }
-        if self.idx_in_query + self.word.len() < other.idx_in_query - 1 || d_in_rec > d_in_q {
-            //println!("sep, {:?}, {:?}, sefl other", self, other);
+        if self.idx_in_query + self.word.len() < other.idx_in_query - 1 || d_in_rec >= d_in_q {
             self.try_join_separate(other, scheme, params, query, max_d).expect("could not join separate");
         }
         else {
-            //println!("overlap");
             self.join_overlapping(other, scheme).expect("could not join overlapping");
         }
         true
@@ -137,11 +121,8 @@ impl HSP {
         let distance = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
         let d_in_rec = (self.idx_in_record + self.word.len() + self.padding_left).abs_diff(other.idx_in_record + other.padding_left);
         let max_gaps = distance.abs_diff(d_in_rec);
-        if d_in_rec - distance <= max_d && d_in_rec >= distance {
-            //println!("force join, {}, {}, {:?}{:?}", distance, d_in_rec, self, other);
+        if d_in_rec >= distance && d_in_rec - distance <= max_d {
             self.word.extend_from_slice(&query.seq[self.idx_in_query + self.word.len()..self.idx_in_query + self.word.len() + distance]);
-            //println!("{:#?}", &query.seq[self.idx_in_query + self.word.len()..self.idx_in_query + self.word.len() + distance]);
-            //println!("{:#?}", vec!['-' as u8; d_in_rec - distance]);
             self.word.append(&mut vec!['-' as u8; d_in_rec - distance]);
             self.padding_right -= d_in_rec - distance;
             other.idx_in_query += d_in_rec - distance;
@@ -186,7 +167,6 @@ impl HSP {
             }
             extended += 1;
         }
-        //return;
         self.word = self.word.split_off(extended - best_extension);
         self.padding_left += extended - best_extension;
         self.score = max_score;
@@ -199,25 +179,19 @@ impl HSP {
         let mut best_extension: usize = 0;
         let mut extended = 0;
         max_extension = max_extension.min(self.padding_right);
-        //println!("max: {}", max_extension);
-        //println!("{}", self);
-        //println!("{}", query.seq.len());
         for i in 0..max_extension {
             if self.idx_in_query + self.word.len() + 1 >= query.seq.len() || self.padding_right == 0 || self.score < params.extension_threshold {
-                //println!("cont, {i}, {}, {}", self.idx_in_query + self.word.len() + 1 == query.seq.len(), self.score < params.extension_threshhold);
                 continue;
             }
             if self.extend_one_right_unchecked(scheme, query, max_gaps != 0) {
                 max_gaps -= 1;
             }
-            //println!("extended, pad: {}", self.padding_right);
             if self.score > max_score {
                 max_score = self.score;
                 best_extension = i;
             }
             extended += 1;
         }
-        //return;
         let _ = self.word.split_off(self.word.len() - (extended - best_extension));
         self.padding_right += extended - best_extension;
         self.score = max_score;
@@ -460,7 +434,6 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
     println!("{} hits found, {} non joined hits", h, all_hits.iter().map(|i| if i.borrow().is_joined {0} else {1}).sum::<i32>());
     println!("\nBest hit: ");
     print!("\n{}\n", all_hits.last().unwrap_or(&Rc::new(RefCell::new(HSP::default()))).borrow());
-    //let _ = all_hits.iter().map(|h| println!("hits : {}", h.borrow())).collect::<Vec<()>>();
 }
 
 fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_distance: usize) {
@@ -496,7 +469,6 @@ fn join_right(hits: &[Rc<RefCell<HSP>>], subject: Rc<RefCell<HSP>>, scheme: &Arc
     if hits.len() == 0 {
         return;
     }
-    //println!("joining r");
     let h: Rc<RefCell<HSP>>;
     if subject.borrow_mut().try_join(&mut hits[0].borrow_mut(), scheme, params, query, max_distance) {
         h = Rc::clone(&hits[0]);
@@ -612,13 +584,14 @@ fn _split_byte(byte: u8, split_idx: usize) -> (u8, u8) {
 
 fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, scheme: Arc<ScoringScheme>, hit_sender: &mpsc::Sender<Vec<HSP>>) -> Result<(), String> {
     let mut hits = Vec::default();
-    for (i, slice1) in chunk.bytes[chunk.start_byte..=chunk.end_byte].windows(3).enumerate() {
+    for (i, slice1) in chunk.bytes[chunk.start_byte..=chunk.end_byte].windows(params.k.div_ceil(4)).enumerate() {
         for (j, slice2) in query.words.iter().enumerate() {
             if !(slice1[0] == slice2[0] && slice1[1] == slice2[1]) {
                 continue;
             }
             let mut score = scheme.hit * 8;
-            score += get_bitwise_score(&slice1[2], &slice2[2], &scheme, 4);
+            score += get_score(&slice1[2..slice1.len() - 1], &slice2[2..slice2.len() - 1], &scheme);
+            score += get_bitwise_score(&slice1[slice1.len() - 1], &slice2[slice2.len() - 1], &scheme, 4);
             if score < params.scanning_threshold {
                 continue;
             } 
