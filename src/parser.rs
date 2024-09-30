@@ -13,7 +13,7 @@ pub struct Args {
 
     /// threshold for seeding
     #[arg(short, long, default_value = "60")]
-    pub threshhold: usize,
+    pub threshold: usize,
 
     /// length of word durign seeding
     #[arg(short, long, default_value = "12")]
@@ -42,4 +42,8 @@ pub struct Args {
     /// Threshold for a sequence to be masked
     #[arg(long, default_value = "false")]
     pub experimental: bool,   
+
+    /// Force new database generation
+    #[arg(long, default_value = "false")]
+    pub new_db: bool
 }

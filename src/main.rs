@@ -41,18 +41,18 @@ fn main() -> Result<(), String> {
             return Ok(());
         }
         let p = &(args.db_file.split('.').nth(0).unwrap().to_string() + "/");
-        if fs::exists(p).is_err() || !fs::exists(p).unwrap() {
+        if args.new_db || fs::exists(p).is_err() || !fs::exists(p).unwrap() {
             let _ = generate_db(&args.db_file, p);
             println!("{:?}", now.elapsed());
         }
 
         let params = Params {
-            k: args.length,
-            extension_threshhold: 30,
-            scanning_threshhold: if args.threshhold % 4 == 0 {args.threshhold as i16} else {12},
+            k: if args.length % 4 == 0 {args.length} else {12},
+            extension_threshold: 24,
+            scanning_threshold: args.threshold as i16,
             extension_length: 64,
             verbose: args.verbose,
-            masking_threshhold: args.masking_threshold,
+            masking_threshold: args.masking_threshold,
             masking: !args.no_masking
         };
 
@@ -60,7 +60,7 @@ fn main() -> Result<(), String> {
 
         return Ok(());
     }
-    let mut t = args.threshhold;
+    let mut t = args.threshold;
         if t > args.length {
             t = args.length;
         }
@@ -95,7 +95,7 @@ fn main() -> Result<(), String> {
         let db_kmers = get_db(&args.db_file, args.length);
         println!("\n{:#?} db built", now.elapsed());
         let db_reader = Reader::from_file(&args.db_file).unwrap();
-        let mut blastn = BLASTn::new(db_reader.records(), Arc::from(res), args.threshhold, args.threshhold, args.length);
+        let mut blastn = BLASTn::new(db_reader.records(), Arc::from(res), args.threshold, args.threshold, args.length);
 
         let now = Instant::now();
 
