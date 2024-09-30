@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fmt::{self, Debug}, io, rc::Rc, sync::{mpsc, Arc}, thread::{self, JoinHandle}, time::Instant};
 
-use crate::{make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db::{bytes_to_chars, parse_compressed_db_lazy, read_csv}, records::{Record, SimpleRecord}}, dust::Dust, blastn::convert_to_ascii};
+use crate::{blastn::convert_to_ascii, dust::Dust, make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db::{bytes_to_chars, parse_compressed_db_lazy, read_csv}, records::{Record, SimpleRecord}}};
 
 //TODO: -precalculate all div_ceils, where possible
 //      -implement support for word lengths k where k % 4 != 0
@@ -59,6 +59,8 @@ struct HSP {
     is_extended_left: bool,
     is_extended_right: bool,
     is_joined: bool,
+    num_gaps: usize,
+    virtual_length: usize,
 }
 
 impl HSP {
@@ -66,35 +68,58 @@ impl HSP {
     fn try_join(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_d: usize) -> bool {
         //TODO: refactor this shit
         //tries to joins other to the right side of self
-        //TODO: expand logic to all cases
+        //TODO: expand logic to all cases, verify it and remove redundant checks
 
         if other.is_joined || 
         self.id != other.id || 
-        (self.idx_in_query > other.idx_in_query || self.idx_in_query + self.word.len() >= other.idx_in_query + other.word.len()) || 
-        (self.idx_in_record + self.padding_left > other.idx_in_record + other.padding_left || self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left) {
+        (self.idx_in_query > other.idx_in_query || self.idx_in_query + self.virtual_length >= other.idx_in_query + other.virtual_length) || 
+        self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left {
             return false;
         }
         let d_in_rec = (self.idx_in_record + self.padding_left + self.word.len()).abs_diff(other.idx_in_record + other.padding_left);
-        let d_in_q = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
+        let d_in_q = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
         if d_in_q > d_in_rec {
             return false;
         }
-        if self.idx_in_query + self.word.len() < other.idx_in_query - 1 || d_in_rec >= d_in_q {
-            self.try_join_separate(other, scheme, params, query, max_d).expect("could not join separate");
+        if d_in_rec >= d_in_q || self.idx_in_query + self.virtual_length < other.idx_in_query - 1 {
+            if self.try_join_separate(other, scheme, params, query, max_d).is_err() {
+                return false;
+            }
         }
         else {
-            self.join_overlapping(other, scheme).expect("could not join overlapping");
+            if self.try_join_overlapping(other, scheme).is_err() {
+                return false;
+            }
         }
         true
     }
 
-    fn join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
+    fn try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
         let overlap = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
-        if overlap > self.word.len() || overlap > other.word.len() {
-            return Ok(());
+        let current_score: i16;
+        let other_score: i16;
+        let self_overlap_gaps = count_gaps(&self.word[self.word.len() - overlap..]);
+        let other_overlap_gaps = count_gaps(&other.word[..overlap]);
+        
+        if overlap == 0 {
+            current_score = 0;
+            other_score = 0;
         }
-        let current_score = get_score(&self.word[self.word.len() - overlap..], &self.db_seq[self.db_seq.len() - self.padding_right - overlap..self.db_seq.len() - self.padding_right], scheme);
-        let other_score = get_score(&other.word[..overlap], &other.db_seq[other.padding_left..other.padding_left + overlap], scheme);
+        else {
+            current_score = get_score(&self.word[self.word.len() - overlap..], &self.db_seq[self.db_seq.len() - self.padding_right - overlap..self.db_seq.len() - self.padding_right], scheme);
+            other_score = get_score(&other.word[..overlap], &other.db_seq[other.padding_left..other.padding_left + overlap], scheme);   
+        }
+        
+        if other_score > current_score {
+            self.score = self.score - current_score + other_score + get_score(&other.word[overlap..], &other.db_seq[other.padding_left + overlap..other.padding_left + other.word.len()], scheme);
+            self.word.splice(self.word.len() - overlap.., other.word.clone());
+            self.num_gaps += other.num_gaps - self_overlap_gaps;
+        }
+        else {
+            self.score += get_score(&other.word[overlap..], &other.db_seq[other.padding_left + overlap..other.padding_left + other.word.len()], scheme);
+            self.word.extend_from_slice(&other.word[overlap..]);
+            self.num_gaps += other.num_gaps - other_overlap_gaps;
+        }
 
         if other.idx_in_record + other.db_seq.len() > self.idx_in_record + self.db_seq.len() {
             self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
@@ -103,56 +128,74 @@ impl HSP {
         else {
             self.padding_right = self.db_seq.len() + overlap - self.padding_left - self.word.len() - other.word.len();
         }
-        
-        if other_score > current_score {
-            self.score = self.score - current_score + other_score + get_score(&other.word[overlap..], &other.db_seq[other.padding_left + overlap..other.padding_left + other.word.len()], scheme);
-            self.word.splice(self.word.len() - overlap.., other.word.clone());
-        }
-        else {
-            self.score += get_score(&other.word[overlap..], &other.db_seq[other.padding_left + overlap..other.padding_left + other.word.len()], scheme);
-            self.word.extend_from_slice(&other.word[overlap..]);
-        }
+        self.set_vlen();
         other.is_joined = true;
         Ok(())
     }
 
     fn try_join_separate(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_d: usize) -> Result<(), &str> {
         //TODO: if the HSPs are within max_d, try to join them without extension by introducing gaps
-        let distance = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
+        let d_in_q = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
         let d_in_rec = (self.idx_in_record + self.word.len() + self.padding_left).abs_diff(other.idx_in_record + other.padding_left);
-        let max_gaps = distance.abs_diff(d_in_rec);
-        if d_in_rec >= distance && d_in_rec - distance <= max_d {
-            self.word.extend_from_slice(&query.seq[self.idx_in_query + self.word.len()..self.idx_in_query + self.word.len() + distance]);
-            self.word.append(&mut vec!['-' as u8; d_in_rec - distance]);
-            self.padding_right -= d_in_rec - distance;
-            other.idx_in_query += d_in_rec - distance;
-            if d_in_rec > distance {
-                self.score += scheme.gap_penalty;
-                self.score += scheme.gap_extension * (d_in_rec - distance - 1) as i16;
+        let max_gaps = d_in_rec.abs_diff(d_in_q);
+        if max_gaps > max_d {
+            return Err("distance too high");
+        }
+        if self.idx_in_query + self.virtual_length >= other.idx_in_query {
+            // we know, that we must insert gaps.
+            // thus d_in_q is actually negative and is the overlap
+            // TODO: figure out the best placements for the gaps. This is just a temp solution
+            // TODO: handle the following case
+            if max_gaps > self.padding_right {
+                return Err("padding too small");
             }
-            self.join_overlapping(other, scheme)?;
-            return Ok(());
+            self.word.splice(self.word.len() - d_in_q..self.word.len() - d_in_q + 1, vec!['-' as u8; max_gaps]);
+            self.num_gaps += max_gaps;
+            self.padding_right -= max_gaps;
+            // the two HSPs pcan now be joined overlapping
         }
-        if !self.is_extended_left {
-            self.extend_left(scheme, query, params, max_gaps, distance);
+        else if d_in_rec > d_in_q {
+            // we need to append gaps to one HSP in order to join the two HSPs
+            // additionally the distance needs to be filled to allow overlapped joining
+            // TODO: figure out best gap placements
+            // TODO: handle the following case
+            if self.padding_right > d_in_rec {
+                return Err("padding too small");
+            }
+            self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
+            self.word.append(&mut vec!['-' as u8; max_gaps]);
+            self.num_gaps += max_gaps;
+            self.padding_right -= d_in_rec;
+            self.score += scheme.gap_penalty;
+            self.score += scheme.gap_extension * (max_gaps - 1) as i16;
+            self.set_vlen();
+            // the HSPs can now be joined overlapping with overlap 0
         }
-        if !other.is_extended_right {
-            other.extend_right(scheme, query, params, max_gaps, distance);
+        else if d_in_q <= max_d{
+            self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
         }
-        let distance = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
-        if self.idx_in_query + self.word.len() >= other.idx_in_query && distance == d_in_rec {
-            self.join_overlapping(other, scheme)?;
+        else if !self.is_extended_left || !other.is_extended_right {
+            // the HSPs are separate, d > max_d and d_in_q == d_in_rec and we can try to join them recursively
+            if !self.is_extended_left {
+                self.extend_left(scheme, query, params, max_gaps, d_in_q);
+            }
+            if !other.is_extended_right {
+                other.extend_right(scheme, query, params, max_gaps, d_in_q);
+            }
+            return self.try_join_separate(other, scheme, params, query, max_d);
         }
-        else if other.idx_in_query - (self.idx_in_query + self.word.len()) < max_d {
-        }
+        self.try_join_overlapping(other, scheme)?;
         Ok(())
     }
 
     //TODO: bounds checking
     fn extend_left(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
-        let mut  max_score = self.score;
+        let mut max_score = self.score;
         let mut best_extension: usize = 0;
         let mut extended = 0;
+        let mut new_gaps = 0;
+        let mut gaps_in_best = 0;
+        let current_gaps = self.num_gaps;
         max_extension = max_extension.min(self.padding_left);
         for i in 0..max_extension {
             if self.idx_in_query == 0 || self.padding_left == 0 || self.score < params.extension_threshold {
@@ -160,35 +203,48 @@ impl HSP {
             }
             if  self.extend_one_left_unchecked(scheme, query, max_gaps != 0) {
                 max_gaps -= 1;
+                new_gaps += 1;
             }
-            if self.score > max_score {
+            if self.score >= max_score {
                 max_score = self.score;
-                best_extension = i;
+                best_extension = i + 1;
+                gaps_in_best += new_gaps;
+                new_gaps = 0;
             }
             extended += 1;
         }
-        self.word = self.word.split_off(extended - best_extension);
+        if extended > best_extension {
+            self.word = self.word.split_off(extended - best_extension); // -0
+        }
+        self.num_gaps = current_gaps + gaps_in_best;
         self.padding_left += extended - best_extension;
         self.score = max_score;
         self.is_extended_left = true;
         self.idx_in_query += extended - best_extension;
+        self.set_vlen();
     }
 
     fn extend_right(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
-        let mut  max_score = self.score;
+        let mut max_score = self.score;
         let mut best_extension: usize = 0;
         let mut extended = 0;
+        let mut gaps_in_best = 0;
+        let current_gaps = self.num_gaps;
+        let mut new_gaps = 0;
         max_extension = max_extension.min(self.padding_right);
         for i in 0..max_extension {
-            if self.idx_in_query + self.word.len() + 1 >= query.seq.len() || self.padding_right == 0 || self.score < params.extension_threshold {
+            if self.padding_right == 0 || self.idx_in_query + self.virtual_length + 1 >= query.seq.len() || self.score < params.extension_threshold {
                 continue;
             }
             if self.extend_one_right_unchecked(scheme, query, max_gaps != 0) {
                 max_gaps -= 1;
+                new_gaps += 1;
             }
-            if self.score > max_score {
+            if self.score >= max_score {
                 max_score = self.score;
-                best_extension = i;
+                best_extension = i + 1;
+                gaps_in_best += new_gaps;
+                new_gaps = 0;
             }
             extended += 1;
         }
@@ -196,27 +252,32 @@ impl HSP {
         self.padding_right += extended - best_extension;
         self.score = max_score;
         self.is_extended_right = true;
+        self.num_gaps = current_gaps + gaps_in_best;
+        self.set_vlen();
     }
 
     fn extend_one_right_unchecked(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, can_use_gaps: bool) -> bool {
         // extends the sequence by one nt to the left and returns a flag, which indicates a gap
-         if query.seq[self.idx_in_query + self.word.len() + 1] == 'N' as u8 {
+        if query.seq[self.idx_in_query + self.virtual_length + 1] == 'N' as u8 {
             self.word.push('N' as u8);
             // save the information of a masked region, as that influences stats.
             self.padding_right -= 1;
+            self.virtual_length += 1;
             return false;
         }
-        if self.db_seq[self.padding_left + self.word.len()] == query.seq[self.idx_in_query + self.word.len() + 1] {
+        if self.db_seq[self.padding_left + self.word.len()] == query.seq[self.idx_in_query + self.virtual_length + 1] {
             self.score += scheme.hit;
-            self.word.push(query.seq[self.idx_in_query + self.word.len() + 1]);
+            self.word.push(query.seq[self.idx_in_query + self.virtual_length + 1]);
             self.padding_right -= 1;
+            self.virtual_length += 1;
             false
         }
         else {
-            if !can_use_gaps || (self.padding_right < 2 || (query.seq.len() - self.idx_in_query - self.word.len()) < 3) || query.seq[self.idx_in_query + self.word.len() + 2] == self.db_seq[self.padding_left + self.word.len() + 1] {
-                self.word.push(query.seq[self.idx_in_query + self.word.len() + 1]);
+            if !can_use_gaps || (self.padding_right < 2 || (self.idx_in_query - self.virtual_length) < query.seq.len() - 2) || query.seq[self.idx_in_query + self.virtual_length + 2] == self.db_seq[self.padding_left + self.word.len() + 1] {
+                self.word.push(query.seq[self.idx_in_query + self.virtual_length + 1]);
                 self.score += scheme.miss;
                 self.padding_right -= 1;
+                self.virtual_length += 1;
                 return false;
             }
             self.word.push( '-' as u8);
@@ -227,6 +288,7 @@ impl HSP {
                 self.score += scheme.gap_penalty;
             }
             self.padding_right -= 1;
+            self.num_gaps += 1;
             true
         }
     }
@@ -237,6 +299,7 @@ impl HSP {
             // save the information of a masked region, as that influences stats.
             self.padding_left -= 1;
             self.idx_in_query -= 1;
+            self.virtual_length += 1;
             return false;
         }
         if self.db_seq[self.padding_left - 1] == query.seq[self.idx_in_query - 1] {
@@ -244,6 +307,7 @@ impl HSP {
             self.word.insert(0, query.seq[self.idx_in_query - 1]);
             self.padding_left -= 1;
             self.idx_in_query -= 1;
+            self.virtual_length += 1;
             false
         }
         else {
@@ -252,6 +316,7 @@ impl HSP {
                 self.score += scheme.miss;
                 self.padding_left -= 1;
                 self.idx_in_query -= 1;
+                self.virtual_length += 1;
                 return false;
             }
             self.word.insert(0, '-' as u8);
@@ -262,9 +327,15 @@ impl HSP {
                 self.score += scheme.gap_penalty;
             }
             self.padding_left -= 1;
-            self.idx_in_query -= 1;
+            //self.idx_in_query -= 0;
+            self.num_gaps += 1;
+            //self.virtual_length -= 1;
             true
         }
+    }
+
+    fn set_vlen(&mut self) {
+        self.virtual_length = self.word.len() - self.num_gaps;
     }
 }
 
@@ -275,7 +346,7 @@ impl fmt::Display for HSP {
         writeln!(f, "E value: {:e}", self.e_val)?;
         writeln!(f, "start_idx query: {}", self.idx_in_query)?;
         writeln!(f, "start_idx rec: {}", self.idx_in_record + self.padding_left)?;
-        writeln!(f, "length: {}", self.word.len())?;
+        writeln!(f, "v length: {}, gaps: {}, length: {}", self.virtual_length, self.num_gaps, self.word.len())?;
         writeln!(f, "joined: {}, extended: l{} r{}", self.is_joined, self.is_extended_left, self.is_extended_right)?;
         let chars_per_line = 50;
         let max_chars = 200;
@@ -313,6 +384,10 @@ impl Debug for HSP {
     }
 }
 
+fn count_gaps(seq: &[u8]) -> usize {
+    seq.iter().filter(|&i| *i == '-' as u8).count()
+}
+
 #[derive (Default)]
 struct ScoringScheme {
     gap_penalty: i16,
@@ -332,6 +407,10 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, p
     }
 
     let params = Arc::new(params);
+    if params.k > query.seq.len() {
+        eprintln!("word length is higher than query length");
+        return Ok(());
+    }
     get_query_words(params.k, &mut query);
 
     let mut records = read_csv(&path_to_db)?;
@@ -434,6 +513,8 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
     println!("{} hits found, {} non joined hits", h, all_hits.iter().map(|i| if i.borrow().is_joined {0} else {1}).sum::<i32>());
     println!("\nBest hit: ");
     print!("\n{}\n", all_hits.last().unwrap_or(&Rc::new(RefCell::new(HSP::default()))).borrow());
+    //let h = all_hits.last().unwrap().borrow();
+    //println!("true query: {}", query.seq[h.idx_in_query..h.idx_in_query + h.virtual_length].iter().map(|i| convert_to_ascii(i)).collect::<String>());
 }
 
 fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_distance: usize) {
@@ -444,8 +525,8 @@ fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, params: &Ar
             continue;
         }
         let h = Rc::clone(&hits[i]);
-        join_left(&hits[..i], Rc::clone(&h), scheme, params, query, max_distance);
-        join_right(&hits[i + 1..], h, scheme, params, query, max_distance);
+        join_right(&hits[i + 1..], Rc::clone(&h), scheme, params, query, max_distance);
+        join_left(&hits[..i], h, scheme, params, query, max_distance);
     }
 }
 
@@ -469,14 +550,8 @@ fn join_right(hits: &[Rc<RefCell<HSP>>], subject: Rc<RefCell<HSP>>, scheme: &Arc
     if hits.len() == 0 {
         return;
     }
-    let h: Rc<RefCell<HSP>>;
-    if subject.borrow_mut().try_join(&mut hits[0].borrow_mut(), scheme, params, query, max_distance) {
-        h = Rc::clone(&hits[0]);
-    }
-    else {
-        h = Rc::clone(&subject);
-    }
-    join_right(&hits[1..], h, scheme, params, query, max_distance);
+    subject.borrow_mut().try_join(&mut hits[0].borrow_mut(), scheme, params, query, max_distance);
+    join_right(&hits[1..], Rc::clone(&subject), scheme, params, query, max_distance);
 }
 
 fn distribute_chunks(chunk_receiver: mpsc::Receiver<Vec<u8>>, distributors: Vec<mpsc::Sender<ProcessedChunk>>, params: Arc<Params>, mut records: impl Iterator<Item = Arc<Record>>) {
@@ -611,7 +686,9 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 is_extended_right: false,
                 is_extended_left: false,
                 is_joined: false,
-                e_val: 0.0 //TODO
+                e_val: 0.0, //TODO
+                num_gaps: 0,
+                virtual_length: params.k
                 });
         }
     }
