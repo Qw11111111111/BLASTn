@@ -95,7 +95,10 @@ impl HSP {
     }
 
     fn try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
-        let overlap = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
+        if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length { //|| self.idx_in_query > other.idx_in_record {
+            return Err("false match");
+        }
+        let overlap = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
         let current_score: i16;
         let other_score: i16;
         let self_overlap_gaps = count_gaps(&self.word[self.word.len() - overlap..]);
@@ -109,7 +112,6 @@ impl HSP {
             current_score = get_score(&self.word[self.word.len() - overlap..], &self.db_seq[self.db_seq.len() - self.padding_right - overlap..self.db_seq.len() - self.padding_right], scheme);
             other_score = get_score(&other.word[..overlap], &other.db_seq[other.padding_left..other.padding_left + overlap], scheme);   
         }
-        
         if other_score > current_score {
             self.score = self.score - current_score + other_score + get_score(&other.word[overlap..], &other.db_seq[other.padding_left + overlap..other.padding_left + other.word.len()], scheme);
             self.word.splice(self.word.len() - overlap.., other.word.clone());
@@ -120,13 +122,13 @@ impl HSP {
             self.word.extend_from_slice(&other.word[overlap..]);
             self.num_gaps += other.num_gaps - other_overlap_gaps;
         }
-
         if other.idx_in_record + other.db_seq.len() > self.idx_in_record + self.db_seq.len() {
-            self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
-            self.padding_right = other.padding_right;
+            self.db_seq.extend_from_slice(&other.db_seq[other.db_seq.len() - (self.idx_in_record + self.db_seq.len() - other.idx_in_record)..]);
+            //self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
+            self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         }
         else {
-            self.padding_right = self.db_seq.len() + overlap - self.padding_left - self.word.len() - other.word.len();
+            self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         }
         self.set_vlen();
         other.is_joined = true;
@@ -149,7 +151,12 @@ impl HSP {
             if max_gaps > self.padding_right {
                 return Err("padding too small");
             }
-            self.word.splice(self.word.len() - d_in_q..self.word.len() - d_in_q + 1, vec!['-' as u8; max_gaps]);
+            if d_in_q == 0 {
+                self.word.append(&mut vec!['-' as u8; max_gaps]);
+            }
+            else {
+                self.word.splice(self.word.len() - d_in_q..self.word.len() - d_in_q, vec!['-' as u8; max_gaps]);
+            }
             self.num_gaps += max_gaps;
             self.padding_right -= max_gaps;
             // the two HSPs pcan now be joined overlapping
@@ -159,7 +166,7 @@ impl HSP {
             // additionally the distance needs to be filled to allow overlapped joining
             // TODO: figure out best gap placements
             // TODO: handle the following case
-            if self.padding_right > d_in_rec {
+            if self.padding_right < d_in_rec {
                 return Err("padding too small");
             }
             self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
@@ -190,6 +197,7 @@ impl HSP {
 
     //TODO: bounds checking
     fn extend_left(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
+        self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         let mut max_score = self.score;
         let mut best_extension: usize = 0;
         let mut extended = 0;
@@ -225,6 +233,7 @@ impl HSP {
     }
 
     fn extend_right(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
+        self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         let mut max_score = self.score;
         let mut best_extension: usize = 0;
         let mut extended = 0;
@@ -388,6 +397,39 @@ fn count_gaps(seq: &[u8]) -> usize {
     seq.iter().filter(|&i| *i == '-' as u8).count()
 }
 
+fn compare_to_query(query: &[u8], seq: &[u8]) {
+    let mut q = query.to_vec();
+    for i in 0..seq.len() {
+        if seq[i] == '-' as u8 {
+            q.insert(i, '-' as u8);
+        }
+    }
+    let chars_per_line = 50;
+    let max_chars = 200;
+    for j in (0..seq.len().min(max_chars)).step_by(chars_per_line) {
+        print!("seq:  ");
+        for b in &seq[j..seq.len().min(j + chars_per_line)] {
+            print!("{}", convert_to_ascii(b));
+        }
+        println!("");
+        print!("      ");
+        for i in j..seq.len().min(j + chars_per_line) {
+            if seq[i] == q[i] {
+                print!("|");
+            }
+            else {
+                print!(" ");
+            }
+        }
+        println!("");
+        print!("q:    ");
+        for b in &q[j..(seq.len()).min(j + chars_per_line)] {
+            print!("{}", convert_to_ascii(b));
+        }
+        println!("");
+    }
+}
+
 #[derive (Default)]
 struct ScoringScheme {
     gap_penalty: i16,
@@ -513,8 +555,9 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
     println!("{} hits found, {} non joined hits", h, all_hits.iter().map(|i| if i.borrow().is_joined {0} else {1}).sum::<i32>());
     println!("\nBest hit: ");
     print!("\n{}\n", all_hits.last().unwrap_or(&Rc::new(RefCell::new(HSP::default()))).borrow());
-    //let h = all_hits.last().unwrap().borrow();
-    //println!("true query: {}", query.seq[h.idx_in_query..h.idx_in_query + h.virtual_length].iter().map(|i| convert_to_ascii(i)).collect::<String>());
+    let h = all_hits.last().unwrap().borrow();
+    println!("the following sequences should be 100% similar. Anything else is a bug\n");
+    compare_to_query(&query.seq[h.idx_in_query..h.idx_in_query + h.virtual_length], &h.word);
 }
 
 fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_distance: usize) {
@@ -661,10 +704,13 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
     let mut hits = Vec::default();
     for (i, slice1) in chunk.bytes[chunk.start_byte..=chunk.end_byte].windows(params.k.div_ceil(4)).enumerate() {
         for (j, slice2) in query.words.iter().enumerate() {
+            if slice2.len() == 0 {
+                continue;
+            }
             if !(slice1[0] == slice2[0] && slice1[1] == slice2[1]) {
                 continue;
             }
-            let mut score = scheme.hit * 8;
+            let mut score = scheme.hit * 8; 
             score += get_score(&slice1[2..slice1.len() - 1], &slice2[2..slice2.len() - 1], &scheme);
             score += get_bitwise_score(&slice1[slice1.len() - 1], &slice2[slice2.len() - 1], &scheme, 4);
             if score < params.scanning_threshold {
@@ -729,9 +775,6 @@ fn get_query_words(k: usize, query: &mut SimpleRecord) {
             else {
                 Vec::default()
             }
-        })
-        .filter(|word| {
-            word.len() == k.div_ceil(4)
         })
         .collect();
     query.k = k;
