@@ -7,7 +7,8 @@ use crate::{blastn::convert_to_ascii, dust::Dust, make_db::{parse_fasta::{parse_
 //      -implement support for CLI flags
 //      -optimize
 //TODO: -No need to keep actual strings in HSP. Just keep track of idx in query, current length and gap indices.
-//      -Sometimes parts of teh query are not saved or deleted in the final HSPs. I need to figure out why thsi happens
+//      -Sometimes parts of the query are not saved or deleted in the final HSPs. I need to figure out why this happens
+//      -check padding left and rigth over time
 
 pub struct Params {
     pub k: usize,
@@ -82,6 +83,7 @@ impl HSP {
         if d_in_q > d_in_rec {
             return false;
         }
+        self.set_vlen();
         if d_in_rec >= d_in_q || self.idx_in_query + self.virtual_length < other.idx_in_query - 1 {
             if self.try_join_separate(other, scheme, params, query, max_d).is_err() {
                 return false;
@@ -188,11 +190,18 @@ impl HSP {
             if max_gaps > self.padding_right {
                 return Err("padding too small");
             }
+            if *self.word.last().expect("could not get last element in word") == '-' as u8 {
+                self.score += scheme.gap_extension * max_gaps as i16;
+            }
+            else {
+                self.score += scheme.gap_penalty + scheme.gap_extension * (max_gaps as i16 - 1);
+            }
             if d_in_q == 0 {
                 self.word.append(&mut vec!['-' as u8; max_gaps]);
             }
             else {
-                self.word.splice(self.word.len() - d_in_q..self.word.len() - d_in_q, vec!['-' as u8; max_gaps]);
+                self.word.append(&mut vec!['-' as u8; max_gaps]);
+                //self.word.splice(self.word.len() - d_in_q..self.word.len() - d_in_q, vec!['-' as u8; max_gaps]);
             }
             self.num_gaps += max_gaps;
             self.padding_right -= max_gaps;
@@ -207,12 +216,16 @@ impl HSP {
             if self.padding_right < d_in_rec {
                 return Err("padding too small");
             }
+            if *self.word.last().expect("could not get last element in word") == '-' as u8 {
+                self.score += scheme.gap_extension * max_gaps as i16;
+            }
+            else {
+                self.score += scheme.gap_penalty + scheme.gap_extension * (max_gaps as i16 - 1);
+            }
             self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
             self.word.append(&mut vec!['-' as u8; max_gaps]);
             self.num_gaps += max_gaps;
             self.padding_right -= d_in_rec;
-            self.score += scheme.gap_penalty;
-            self.score += scheme.gap_extension * (max_gaps - 1) as i16;
             self.set_vlen();
             // the HSPs can now be joined overlapping with overlap 0
         }
@@ -220,7 +233,6 @@ impl HSP {
             self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
         }
         else if !self.is_extended_left || !other.is_extended_right {
-            //return Err("");
             // the HSPs are separate, d > max_d and d_in_q == d_in_rec and we can try to join them recursively
             if !self.is_extended_left {
                 self.extend_left(scheme, query, params, max_gaps, d_in_q);
@@ -272,7 +284,6 @@ impl HSP {
     }
 
     fn extend_right(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
-        //return;
         self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         let mut max_score = self.score;
         let mut best_extension: usize = 0;
@@ -764,7 +775,7 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 continue;
             }
             let mut score = scheme.hit * 8; 
-            score += get_score(&slice1[2..slice1.len() - 1], &slice2[2..slice2.len() - 1], &scheme);
+            score += get_byte_score(&slice1[2..slice1.len() - 1], &slice2[2..slice2.len() - 1], &scheme);
             score += get_bitwise_score(&slice1[slice1.len() - 1], &slice2[slice2.len() - 1], &scheme, 4);
             if score < params.scanning_threshold {
                 continue;
@@ -799,7 +810,7 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
     Ok(())
 }
 
-fn get_score(s1: &[u8], s2: &[u8], scheme: &Arc<ScoringScheme>) -> i16 {
+fn get_byte_score(s1: &[u8], s2: &[u8], scheme: &Arc<ScoringScheme>) -> i16 {
     (0..s1.len()).map(|i| get_bitwise_score(&s1[i], &s2[i], scheme, 4)).sum()
 }
 
@@ -815,6 +826,31 @@ fn get_bitwise_score(byte1: &u8, byte2: &u8, scheme: &Arc<ScoringScheme>, end_bi
                 scheme.miss
             }
         }).sum()
+}
+
+fn get_score(q: &[u8], db: &[u8], scheme: &Arc<ScoringScheme>) -> i16 {
+    let mut is_in_gap = false;
+    let mut score = 0;
+    for i in 0..q.len() {
+        if q[i] == db[i] {
+            score += scheme.hit;
+            is_in_gap = false;
+        }
+        else if q[i] == '-' as u8 {
+            if is_in_gap {
+                score += scheme.gap_extension;
+            }
+            else {
+                is_in_gap = true;
+                score += scheme.gap_penalty;
+            }
+        } 
+        else {
+            score += scheme.miss;
+            is_in_gap = false;
+        }
+    }
+    score
 }
 
 fn get_query_words(k: usize, query: &mut SimpleRecord) {

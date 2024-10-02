@@ -56,7 +56,7 @@ fn main() -> Result<(), String> {
             masking: !args.no_masking
         };
 
-        let _ = align(&(args.db_file.split('.').nth(0).unwrap().to_string() + "/"), &args.query_file, 20, params);
+        let _ = align(&(args.db_file.split('.').nth(0).unwrap().to_string() + "/"), &args.query_file, args.num_workers, params);
 
         return Ok(());
     }

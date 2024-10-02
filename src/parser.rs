@@ -45,5 +45,9 @@ pub struct Args {
 
     /// Force new database generation
     #[arg(long, default_value = "false")]
-    pub new_db: bool
+    pub new_db: bool,
+
+    /// num workers for scanning
+    #[arg(long, default_value = "10")]
+    pub num_workers: usize
 }
