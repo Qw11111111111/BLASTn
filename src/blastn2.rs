@@ -72,15 +72,23 @@ impl HSP {
         //tries to joins other to the right side of self
         //TODO: expand logic to all cases, verify it and remove redundant checks
 
+        if self.contains(other) {
+            other.is_joined = true;
+            other.is_extended_left = true;
+            other.is_extended_right = true;
+            return false;
+        }
+
         if other.is_joined || 
         self.id != other.id || 
-        (self.idx_in_query > other.idx_in_query || self.idx_in_query + self.virtual_length >= other.idx_in_query + other.virtual_length) || 
+        (self.idx_in_query > other.idx_in_query || self.idx_in_query + self.virtual_length >= other.idx_in_query + other.virtual_length) ||
+        self.idx_in_query + self.word.len() + self.padding_right + max_d + self.padding_left < other.idx_in_query ||
         self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left {
             return false;
         }
         let d_in_rec = (self.idx_in_record + self.padding_left + self.word.len()).abs_diff(other.idx_in_record + other.padding_left);
         let d_in_q = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
-        if d_in_q > d_in_rec {
+        if d_in_q > d_in_rec || self.idx_in_query + self.virtual_length > other.idx_in_query {
             return false;
         }
         self.set_vlen();
@@ -144,10 +152,13 @@ impl HSP {
     }
     */
     fn try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
-        if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length { //|| self.idx_in_query > other.idx_in_record {
+        self.set_vlen();
+        self.padding_right = self.word.len() - self.padding_left;
+        if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length || 
+        self.idx_in_query + self.virtual_length + 1 < other.idx_in_query || 
+        self.idx_in_record + self.padding_left + 1 + self.word.len() < other.idx_in_record { //|| self.idx_in_query > other.idx_in_record {
             return Err("false match");
         }
-        self.set_vlen();
         let start_idx: usize;
         if  other.num_gaps > 0 {
             let start = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
@@ -156,13 +167,13 @@ impl HSP {
         else {
             start_idx = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
         }
+        //println!("{}, {}", self, other);
         let other_overlap_gaps = count_gaps(&other.word[..start_idx]);
         self.score += get_score(&other.word[start_idx..], &other.db_seq[other.padding_left + start_idx..other.padding_left + other.word.len()], scheme);
         self.word.extend_from_slice(&other.word[start_idx..]);
         self.num_gaps += other.num_gaps - other_overlap_gaps;
         if other.idx_in_record + other.db_seq.len() > self.idx_in_record + self.db_seq.len() {
-            self.db_seq.extend_from_slice(&other.db_seq[other.db_seq.len() - (self.idx_in_record + self.db_seq.len() - other.idx_in_record)..]);
-            //self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
+            self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
             self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         }
         else {
@@ -242,6 +253,7 @@ impl HSP {
             }
             return self.try_join_separate(other, scheme, params, query, max_d);
         }
+        //println!("try");
         self.try_join_overlapping(other, scheme)?;
         Ok(())
     }
@@ -397,6 +409,11 @@ impl HSP {
 
     fn set_vlen(&mut self) {
         self.virtual_length = self.word.len() - self.num_gaps;
+    }
+
+    fn contains(&self, other: &HSP) -> bool {
+        self.idx_in_query <= other.idx_in_query && self.idx_in_query + self.virtual_length >= other.idx_in_query + other.virtual_length &&
+        self.idx_in_record + self.padding_left <= other.idx_in_record + other.padding_left && self.idx_in_record + self.padding_left + self.word.len() >= other.idx_in_record + other.padding_left + other.word.len()
     }
 }
 
@@ -572,16 +589,19 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, p
     });
 
     let _ = reader.join();
+    let parsing_time = parser.elapsed();
     let _ = distributor.join();
+    let distribution_time = distributor_t.elapsed();
     for handle in workers {
         let _ = handle.join();
     }
+    let worker_t = worker.elapsed();
     drop(h_tx);
     let _ = hit_proccessor.join();
     if params.verbose {
-        println!("parser: {:?}", parser.elapsed());
-        println!("distributor: {:?}", distributor_t.elapsed());
-        println!("workers: {:?}", worker.elapsed());
+        println!("parser: {:?}", parsing_time);
+        println!("distributor: {:?}", distribution_time);
+        println!("workers: {:?}", worker_t);
         println!("process: {:?}", process.elapsed());
         println!("total: {:?}", total.elapsed());
     }
@@ -602,10 +622,10 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
             continue;
         }
         if true || !h.borrow().is_extended_left {
-            h.borrow_mut().extend_left(&scheme, &query, &params, 100, 500);
+            //h.borrow_mut().extend_left(&scheme, &query, &params, 100, 500);
         }
         if true || !h.borrow().is_extended_right {
-            h.borrow_mut().extend_right(&scheme, &query, &params, 100, 500);
+            //h.borrow_mut().extend_right(&scheme, &query, &params, 100, 500);
         }
     }
     let _ = all_hits.iter().map(|h|  {
@@ -793,8 +813,8 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 word: bytes_to_chars(&query.words[j], 3, 0),
                 idx_in_query: j,
                 idx_in_record: chunk.start_in_rec as usize + i * 4 + chunk.start_byte * 4 - params.extension_length.min((chunk.start_byte + i) * 4),
-                is_extended_right: false,
-                is_extended_left: false,
+                is_extended_right: true,
+                is_extended_left: true,
                 is_joined: false,
                 e_val: 0.0, //TODO
                 num_gaps: 0,
@@ -867,5 +887,6 @@ fn get_query_words(k: usize, query: &mut SimpleRecord) {
         })
         .collect();
     query.k = k;
+    //println!("{}", query.words.iter().filter(|w| w.len()>0).collect::<Vec<&Vec<u8>>>().len());
 }
 
