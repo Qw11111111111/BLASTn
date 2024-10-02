@@ -1,4 +1,4 @@
-use std::{fs, io::{self, Read}, str, sync::mpsc};
+use std::{fs, io::{self, Read}, path::PathBuf, str, sync::mpsc};
 use super::records::VecRecord;
 
 pub fn read_compressed_db(path: &str) -> io::Result<String> {
@@ -74,8 +74,8 @@ pub fn bytes_to_chars(bytes: &[u8], end_bit: usize, start_bit: usize) -> Vec<u8>
 }
 
 
-pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sender<Vec<u8>>) -> io::Result<()> {
-    let file = fs::File::open(&(path.to_string() + "seq.bin"))?;
+pub fn parse_compressed_db_lazy(path: PathBuf, chunk_size: usize, sender: mpsc::Sender<Vec<u8>>) -> io::Result<()> {
+    let file = fs::File::open(path.join("seq.bin"))?;
     let mut reader = io::BufReader::new(file);
     let mut buf = vec![0; chunk_size];
 
@@ -91,9 +91,9 @@ pub fn parse_compressed_db_lazy(path: &str, chunk_size: usize, sender: mpsc::Sen
     Ok(())
 }
 
-pub fn read_csv(path: &str) -> io::Result<VecRecord> {
+pub fn read_csv(path: PathBuf) -> io::Result<VecRecord> {
     let mut records = VecRecord::default();
-    let mut reader = csv::Reader::from_path(&(path.to_string() + "records.csv"))?;
+    let mut reader = csv::Reader::from_path(path.join("records.csv"))?;
     for rec in reader.deserialize() {
         records.push(rec?);
     }

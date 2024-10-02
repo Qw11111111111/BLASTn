@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt::{self, Debug}, io, rc::Rc, sync::{mpsc, Arc}, thread::{self, JoinHandle}, time::Instant};
+use std::{cell::RefCell, fmt::{self, Debug}, io, path::PathBuf, rc::Rc, sync::{mpsc, Arc}, thread::{self, JoinHandle}, time::Instant};
 
 use crate::{blastn::convert_to_ascii, dust::Dust, make_db::{parse_fasta::{parse_small_fasta, parse_to_bytes}, read_db::{bytes_to_chars, parse_compressed_db_lazy, read_csv}, records::{Record, SimpleRecord}}};
 
@@ -9,6 +9,7 @@ use crate::{blastn::convert_to_ascii, dust::Dust, make_db::{parse_fasta::{parse_
 //TODO: -No need to keep actual strings in HSP. Just keep track of idx in query, current length and gap indices.
 //      -Sometimes parts of the query are not saved or deleted in the final HSPs. I need to figure out why this happens
 //      -check padding left and rigth over time
+//      -check extend ritgth
 
 pub struct Params {
     pub k: usize,
@@ -520,7 +521,7 @@ struct ScoringScheme {
     k: f64
 }
 
-pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, params: Params) -> io::Result<()> {
+pub fn align<'a>(path_to_db: PathBuf, path_to_query: &str, num_workers: usize, params: Params) -> io::Result<()> {
     let total = Instant::now();
     let parser = Instant::now();
     let mut query = parse_small_fasta(path_to_query)?;
@@ -535,7 +536,7 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, p
     }
     get_query_words(params.k, &mut query);
 
-    let mut records = read_csv(&path_to_db)?;
+    let mut records = read_csv(path_to_db.clone())?;
     let ids = records.by_ref().map(|r| r.id.clone()).collect::<Vec<String>>();
     records.reset();
     let lengths = records.by_ref().map(|r| (r.end_byte as usize - 1) - (r.start_byte as usize - 1) + (4 - r.start_bit) + r.end_bit).collect::<Vec<usize>>();
@@ -545,9 +546,9 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, p
         length: lengths
     };
     let (raw_chunk_sender, raw_chunk_receiver) = mpsc::channel::<Vec<u8>>();
-    let p = path_to_db.to_string();
+    let p = path_to_db.clone();
     let reader: JoinHandle<io::Result<()>> = thread::spawn(move || {
-        parse_compressed_db_lazy(&p, 2048, raw_chunk_sender)?;
+        parse_compressed_db_lazy(p, 2048, raw_chunk_sender)?;
         Ok(())
     });
 
@@ -813,8 +814,8 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 word: bytes_to_chars(&query.words[j], 3, 0),
                 idx_in_query: j,
                 idx_in_record: chunk.start_in_rec as usize + i * 4 + chunk.start_byte * 4 - params.extension_length.min((chunk.start_byte + i) * 4),
-                is_extended_right: true,
-                is_extended_left: true,
+                is_extended_right: true, // there is an error in extend right, which i need to fix. thus is is temporarily turned off.
+                is_extended_left: !true,
                 is_joined: false,
                 e_val: 0.0, //TODO
                 num_gaps: 0,

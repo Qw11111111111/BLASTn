@@ -49,5 +49,9 @@ pub struct Args {
 
     /// num workers for scanning
     #[arg(long, default_value = "10")]
-    pub num_workers: usize
+    pub num_workers: usize,
+
+    /// out path for db files
+    #[arg(long, short, default_value= ".")]
+    pub out_path: String
 }
