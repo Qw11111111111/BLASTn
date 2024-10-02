@@ -94,8 +94,8 @@ impl HSP {
         }
         true
     }
-
-    fn try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
+    /*
+    fn _try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
         if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length { //|| self.idx_in_query > other.idx_in_record {
             return Err("false match");
         }
@@ -138,6 +138,37 @@ impl HSP {
         }
         self.set_vlen();
         other.is_joined = true;
+        Ok(())
+    }
+    */
+    fn try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
+        if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length { //|| self.idx_in_query > other.idx_in_record {
+            return Err("false match");
+        }
+        self.set_vlen();
+        let start_idx: usize;
+        if  other.num_gaps > 0 {
+            let start = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
+            start_idx = recursive_count_gaps(&self.word, start);
+        }
+        else {
+            start_idx = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
+        }
+        let other_overlap_gaps = count_gaps(&other.word[..start_idx]);
+        self.score += get_score(&other.word[start_idx..], &other.db_seq[other.padding_left + start_idx..other.padding_left + other.word.len()], scheme);
+        self.word.extend_from_slice(&other.word[start_idx..]);
+        self.num_gaps += other.num_gaps - other_overlap_gaps;
+        if other.idx_in_record + other.db_seq.len() > self.idx_in_record + self.db_seq.len() {
+            self.db_seq.extend_from_slice(&other.db_seq[other.db_seq.len() - (self.idx_in_record + self.db_seq.len() - other.idx_in_record)..]);
+            //self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
+            self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
+        }
+        else {
+            self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
+        }
+        self.set_vlen();
+        other.is_joined = true;
+
         Ok(())
     }
 
@@ -189,6 +220,7 @@ impl HSP {
             self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
         }
         else if !self.is_extended_left || !other.is_extended_right {
+            //return Err("");
             // the HSPs are separate, d > max_d and d_in_q == d_in_rec and we can try to join them recursively
             if !self.is_extended_left {
                 self.extend_left(scheme, query, params, max_gaps, d_in_q);
@@ -240,6 +272,7 @@ impl HSP {
     }
 
     fn extend_right(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
+        //return;
         self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         let mut max_score = self.score;
         let mut best_extension: usize = 0;
@@ -405,6 +438,16 @@ fn count_gaps(seq: &[u8]) -> usize {
     seq.iter().filter(|&i| *i == '-' as u8).count()
 }
 
+fn recursive_count_gaps(seq: &[u8], idx: usize) -> usize {
+    let gaps = count_gaps(&seq[..idx]);
+    if gaps == 0 {
+        return idx;
+    }
+    else {
+        return idx + recursive_count_gaps(&seq[idx..], gaps);
+    }
+}
+
 fn compare_to_query(query: &[u8], seq: &[u8]) {
     let mut q = query.to_vec();
     for i in 0..seq.len() {
@@ -412,7 +455,6 @@ fn compare_to_query(query: &[u8], seq: &[u8]) {
             q.insert(i, '-' as u8);
         }
     }
-    println!("{}, {}", seq.len(), q.len());
     let chars_per_line = 50;
     let max_chars = 200;
     for j in (0..seq.len().min(max_chars)).step_by(chars_per_line) {
@@ -437,6 +479,7 @@ fn compare_to_query(query: &[u8], seq: &[u8]) {
         }
         println!("");
     }
+    println!("")
 }
 
 #[derive (Default)]
@@ -485,8 +528,8 @@ pub fn align<'a>(path_to_db: &'a str, path_to_query: &str, num_workers: usize, p
         gap_extension: -6,
         hit: 5,
         miss: -4,
-        lambda: 0.146,
-        k: 0.039
+        lambda: 0.039,
+        k: 0.11
     });
     let worker = Instant::now();
     let mut worker_senders = Vec::default();
