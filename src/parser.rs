@@ -23,14 +23,6 @@ pub struct Args {
     #[arg(short, long, default_value = "false")]
     pub verbose: bool,
 
-    /// perform the search multiple times
-    #[arg(short, long, default_value = "1")]
-    pub recursive: usize,
-
-    /// only show best match
-    #[arg(short, long, default_value = "false")]
-    pub single_result: bool,
-
     /// do not mask low complexity regions with DUST
     #[arg(short, long, default_value = "false")]
     pub no_masking: bool,
@@ -38,10 +30,6 @@ pub struct Args {
     /// Threshold for a sequence to be masked
     #[arg(long, default_value = "1.0")]
     pub masking_threshold: f64,
-
-    /// Threshold for a sequence to be masked
-    #[arg(long, default_value = "false")]
-    pub experimental: bool,   
 
     /// Force new database generation
     #[arg(long, default_value = "false")]
