@@ -195,7 +195,7 @@ impl HSP {
         }
         self.set_vlen();
         other.is_joined = true;
-
+        self.is_extended_right = other.is_extended_right;
         Ok(())
     }
 
@@ -265,10 +265,12 @@ impl HSP {
             //println!("4");
             // the HSPs are separate, d > max_d and d_in_q == d_in_rec and we can try to join them recursively
             if !self.is_extended_left {
-                self.extend_left(scheme, query, params, max_gaps, d_in_q);
+                //self.extend_left(scheme, query, params, max_gaps, d_in_q);
+                self.extend_left_ungapped(scheme, query, params, d_in_q);
             }
             if !other.is_extended_right {
-                other.extend_right(scheme, query, params, max_gaps, d_in_q);
+                //other.extend_right(scheme, query, params, max_gaps, d_in_q);
+                other.extend_right_ungapped(scheme, query, params, d_in_q);
             }
             return self.try_join_separate(other, scheme, params, query, max_d);
         }
@@ -277,8 +279,65 @@ impl HSP {
         Ok(())
     }
 
+    fn extend_left_ungapped(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, max_extension: usize) {
+        let mut best_score = self.score;
+        let mut best_extension = 0;
+        let mut extended = 0;
+        for i in 1..max_extension.min(self.idx_in_query.min(self.padding_left)) {
+            extended = i;
+            self.word.insert(0, query.seq[self.idx_in_query - i]);
+            if query.seq[self.idx_in_query - i] == self.db_seq[self.padding_left - i] {
+                self.score += scheme.hit;
+            }
+            else {
+                self.score += scheme.miss;
+            }
+            if self.score > best_score {
+                best_score = self.score;
+                best_extension = i;
+            }
+            else if self.score < params.extension_threshold {
+                break;
+            }
+        }
+        self.score = best_score;
+        self.word = self.word.split_off(extended - best_extension);
+        self.idx_in_query -= best_extension;
+        self.padding_left -= best_extension;
+        self.set_vlen();
+        self.is_extended_left = true;
+    }
+
+    fn extend_right_ungapped(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, max_extension: usize) {
+        let mut best_score = self.score;
+        let mut best_extension = 0;
+        let mut extended = 0;
+        for i in 1..max_extension.min(query.seq.len() - self.idx_in_query - self.virtual_length).min(self.padding_right) {
+            extended = i;
+            self.word.push(query.seq[self.idx_in_query + self.word.len() + 1]);
+            if query.seq[self.idx_in_query + self.virtual_length + i] == self.db_seq[self.padding_left + self.word.len() + 1] {
+                self.score += scheme.hit;
+            }
+            else {
+                self.score += scheme.miss;
+            }
+            if self.score > best_score {
+                best_score = self.score;
+                best_extension = i;
+            }
+            else if self.score < params.extension_threshold {
+                break;
+            }
+        }
+        self.score = best_score;
+        let _ = self.word.split_off(self.word.len() + best_extension - extended);
+        self.padding_right = self.word.len() - self.padding_left;
+        self.set_vlen();
+        self.is_extended_right = true;
+    }
+
     //TODO: bounds checking
-    fn extend_left(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
+    fn _extend_left(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
         self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         let mut max_score = self.score;
         let mut best_extension: usize = 0;
@@ -291,7 +350,7 @@ impl HSP {
             if self.idx_in_query == 0 || self.padding_left == 0 || self.score < params.extension_threshold {
                 break;
             }
-            if  self.extend_one_left_unchecked(scheme, query, max_gaps != 0) {
+            if  self._extend_one_left_unchecked(scheme, query, max_gaps != 0) {
                 max_gaps -= 1;
                 new_gaps += 1;
             }
@@ -314,7 +373,7 @@ impl HSP {
         self.set_vlen();
     }
 
-    fn extend_right(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
+    fn _extend_right(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, mut max_gaps: usize, mut max_extension: usize) {
         self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         let mut max_score = self.score;
         let mut best_extension: usize = 0;
@@ -327,7 +386,7 @@ impl HSP {
             if self.padding_right == 0 || self.idx_in_query + self.virtual_length + 1 >= query.seq.len() || self.score < params.extension_threshold {
                 break;
             }
-            if self.extend_one_right_unchecked(scheme, query, max_gaps != 0) {
+            if self._extend_one_right_unchecked(scheme, query, max_gaps != 0) {
                 max_gaps -= 1;
                 new_gaps += 1;
             }
@@ -348,7 +407,7 @@ impl HSP {
         self.set_vlen();
     }
 
-    fn extend_one_right_unchecked(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, can_use_gaps: bool) -> bool {
+    fn _extend_one_right_unchecked(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, can_use_gaps: bool) -> bool {
         // extends the sequence by one nt to the left and returns a flag, which indicates a gap
         if query.seq[self.idx_in_query + self.virtual_length + 1] == 'N' as u8 {
             self.word.push('N' as u8);
@@ -385,7 +444,7 @@ impl HSP {
         }
     }
 
-    fn extend_one_left_unchecked(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, can_use_gaps: bool) -> bool {
+    fn _extend_one_left_unchecked(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, can_use_gaps: bool) -> bool {
         if query.seq[self.idx_in_query - 1] == 'N' as u8 {
             self.word.insert(0, 'N' as u8);
             // save the information of a masked region, as that influences stats.
@@ -444,7 +503,7 @@ impl fmt::Display for HSP {
         writeln!(f, "start_idx query: {}", self.idx_in_query)?;
         writeln!(f, "start_idx rec: {}", self.idx_in_record + self.padding_left)?;
         writeln!(f, "v length: {}, gaps: {}, length: {}", self.virtual_length, self.num_gaps, self.word.len())?;
-        writeln!(f, "joined: {}, extended: l{} r{}", self.is_joined, self.is_extended_left, self.is_extended_right)?;
+        //writeln!(f, "joined: {}, extended: l{} r{}", self.is_joined, self.is_extended_left, self.is_extended_right)?;
         let chars_per_line = 50;
         let max_chars = 200;
         for j in (0..self.word.len().min(max_chars)).step_by(chars_per_line) {
@@ -643,15 +702,21 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
         }
     }
     let mut all_hits = all_hits.into_iter().flatten().collect::<Vec<Rc<RefCell<HSP>>>>();
+    if all_hits.len() < 1 {
+        println!("no hit found.");
+        return;
+    }
     for h in all_hits.iter() {
         if h.borrow().is_joined {
             continue;
         }
-        if true || !h.borrow().is_extended_left {
+        if !h.borrow().is_extended_left {
             //h.borrow_mut().extend_left(&scheme, &query, &params, 100, 500);
+            h.borrow_mut().extend_left_ungapped(&scheme, &query, &params, 100);
         }
-        if true || !h.borrow().is_extended_right {
-            h.borrow_mut().extend_right(&scheme, &query, &params, 100, 500);
+        if !h.borrow().is_extended_right {
+            //h.borrow_mut().extend_right(&scheme, &query, &params, 100, 500);
+            h.borrow_mut().extend_right_ungapped(&scheme, &query, &params, 100);
         }
     }
     let _ = all_hits.iter().map(|h|  {
@@ -664,10 +729,12 @@ fn process_hits(rx: mpsc::Receiver<Vec<HSP>>, query: Arc<SimpleRecord>, scheme: 
     println!("{} hits found, {} non joined hits", h, all_hits.iter().map(|i| if i.borrow().is_joined {0} else {1}).sum::<i32>());
     println!("\nBest hit: ");
     print!("\n{}\n", all_hits.last().unwrap_or(&Rc::new(RefCell::new(HSP::default()))).borrow());
-    let mut h = all_hits.last().expect("no hit was found").borrow_mut();
-    println!("the following sequences should be 100% similar. Anything else is a bug\n");
-    h.set_vlen();
-    compare_to_query(&query.seq[h.idx_in_query..h.idx_in_query + h.virtual_length], &h.word);
+    if params.verbose {
+        let mut h = all_hits.last().expect("no hit was found").borrow_mut();
+        println!("the following sequences should be 100% similar. Anything else is a bug\n");
+        h.set_vlen();
+        compare_to_query(&query.seq[h.idx_in_query..h.idx_in_query + h.virtual_length], &h.word);
+    }
 }
 
 fn join_hits(hits: &[Rc<RefCell<HSP>>], scheme: &Arc<ScoringScheme>, params: &Arc<Params>, query: &Arc<SimpleRecord>, max_distance: usize) {
@@ -851,8 +918,8 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 word: bytes_to_chars(&query.words[j], 3, 0),
                 idx_in_query: j,
                 idx_in_record: chunk.start_in_rec as usize + i * 4 + chunk.start_byte * 4 - params.extension_length.min((chunk.start_byte + i) * 4),
-                is_extended_right: true, // there is an error in extend right, which i need to fix. thus is is temporarily turned off.
-                is_extended_left: true, // actually extend left is false. mazbe both??
+                is_extended_right: !true, // there is an error in extend right, which i need to fix. thus is is temporarily turned off.
+                is_extended_left: !true, // actually extend left is false. mazbe both??
                 is_joined: false,
                 e_val: 0.0, //TODO
                 num_gaps: 0,
