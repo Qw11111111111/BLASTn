@@ -81,32 +81,27 @@ impl HSP {
         //TODO: refactor this shit
         //tries to joins other to the right side of self
         //TODO: expand logic to all cases, verify it and remove redundant checks
-
         if self.contains(other) {
             other.is_joined = true;
             other.is_extended_left = true;
             other.is_extended_right = true;
             return false;
         }
-        //println!("huh");
         if other.is_joined || 
         self.id != other.id || 
         (self.idx_in_query > other.idx_in_query || self.idx_in_query + self.virtual_length >= other.idx_in_query + other.virtual_length) ||
-        self.idx_in_query + self.word.len() + self.padding_right + max_d + self.padding_left < other.idx_in_query ||
+        self.idx_in_query + self.word.len() + self.padding_right + max_d + self.padding_left + other.padding_left < other.idx_in_query ||
         self.idx_in_record + self.padding_left + self.word.len() > other.idx_in_record + other.padding_left {
             return false;
         }
-        //println!("oh");
         let d_in_rec = (self.idx_in_record + self.padding_left + self.word.len()).abs_diff(other.idx_in_record + other.padding_left);
         let d_in_q = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
-        if d_in_q > d_in_rec || self.idx_in_query + self.virtual_length > other.idx_in_query {
+        if d_in_q > d_in_rec {
             return false;
         }
-        //println!("hm");
         self.set_vlen();
         if d_in_rec >= d_in_q || self.idx_in_query + self.virtual_length < other.idx_in_query - 1 {
             if self.try_join_separate(other, scheme, params, query, max_d).is_err() {
-                //println!("h");
                 return false;
             }
         }
@@ -117,57 +112,10 @@ impl HSP {
         }
         true
     }
-    /*
-    fn _try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
-        if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length { //|| self.idx_in_query > other.idx_in_record {
-            return Err("false match");
-        }
-        //TODO: check the overlap stuff
-        let overlap : usize;
-        //let q_overlap = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
-        let v_overlap = (self.idx_in_query + self.word.len()).abs_diff(other.idx_in_query);
-        //println!("{}, {}", q_overlap, v_overlap);
-        overlap = v_overlap;
-        let current_score: i16;
-        let other_score: i16;
-        let self_overlap_gaps = count_gaps(&self.word[self.word.len() - v_overlap..]);
-        let other_overlap_gaps = count_gaps(&other.word[..v_overlap]);
-        
-        if overlap == 0 {
-            current_score = 0;
-            other_score = 0;
-        }
-        else {
-            current_score = get_score(&self.word[self.word.len() - v_overlap..], &self.db_seq[self.db_seq.len() - self.padding_right - v_overlap..self.db_seq.len() - self.padding_right], scheme);
-            other_score = get_score(&other.word[..v_overlap], &other.db_seq[other.padding_left..other.padding_left + v_overlap], scheme);   
-        }
-        if other_score > current_score {
-            self.score = self.score - current_score + other_score + get_score(&other.word[v_overlap..], &other.db_seq[other.padding_left + v_overlap..other.padding_left + other.word.len()], scheme);
-            self.word.splice(self.word.len() - v_overlap.., other.word.clone());
-            self.num_gaps += other.num_gaps - self_overlap_gaps;
-        }
-        else {
-            self.score += get_score(&other.word[v_overlap..], &other.db_seq[other.padding_left + v_overlap..other.padding_left + other.word.len()], scheme);
-            self.word.extend_from_slice(&other.word[v_overlap..]);
-            self.num_gaps += other.num_gaps - other_overlap_gaps;
-        }
-        if other.idx_in_record + other.db_seq.len() > self.idx_in_record + self.db_seq.len() {
-            self.db_seq.extend_from_slice(&other.db_seq[other.db_seq.len() - (self.idx_in_record + self.db_seq.len() - other.idx_in_record)..]);
-            //self.db_seq.extend_from_slice(&other.db_seq[self.db_seq.len() - (other.idx_in_record - self.idx_in_record)..]);
-            self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
-        }
-        else {
-            self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
-        }
-        self.set_vlen();
-        other.is_joined = true;
-        Ok(())
-    }
-    */
+
     fn try_join_overlapping(&mut self, other: &mut HSP, scheme: &Arc<ScoringScheme>) -> Result<(), &str> {
-        //println!("overlap");
+        self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
         self.set_vlen();
-        self.padding_right = self.word.len() - self.padding_left;
         if self.idx_in_query + self.virtual_length > other.idx_in_query + other.virtual_length || 
         self.idx_in_query + self.virtual_length + 1 < other.idx_in_query || 
         self.idx_in_record + self.padding_left + 1 + self.word.len() < other.idx_in_record { //|| self.idx_in_query > other.idx_in_record {
@@ -181,7 +129,7 @@ impl HSP {
         else {
             start_idx = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
         }
-        //println!("{}, {}", self, other);
+
         let other_overlap_gaps = count_chars(&other.word[..start_idx], '-' as u8);
         self.score += get_score(&other.word[start_idx..], &other.db_seq[other.padding_left + start_idx..other.padding_left + other.word.len()], scheme);
         self.word.extend_from_slice(&other.word[start_idx..]);
@@ -203,15 +151,14 @@ impl HSP {
         //TODO: if the HSPs are within max_d, try to join them without extension by introducing gaps
         let d_in_q = (self.idx_in_query + self.virtual_length).abs_diff(other.idx_in_query);
         let d_in_rec = (self.idx_in_record + self.word.len() + self.padding_left).abs_diff(other.idx_in_record + other.padding_left);
+        // we know that d_in_rec >= d_in_q
         let max_gaps = d_in_rec.abs_diff(d_in_q);
-        if max_gaps > max_d {
-            //println!("ah zes, {}", max_gaps);
+        if max_gaps > max_d || self.padding_right < max_gaps {
             return Err("distance too high");
         }
         if self.idx_in_query + self.virtual_length >= other.idx_in_query {
-            //println!("1");
             // we know, that we must insert gaps.
-            // thus d_in_q is actually negative and is the overlap
+            // thus d_in_q is actually negative and is the overlap. we need to close the gap in teh record to join the HSPs with HSP3 = HSP1[..] + HSP2[overlap..]
             // TODO: figure out the best placements for the gaps. This is just a temp solution
             // TODO: handle the following case
             if max_gaps > self.padding_right {
@@ -223,20 +170,13 @@ impl HSP {
             else {
                 self.score += scheme.gap_penalty + scheme.gap_extension * (max_gaps as i16 - 1);
             }
-            if d_in_q == 0 {
-                self.word.append(&mut vec!['-' as u8; max_gaps]);
-            }
-            else {
-                self.word.append(&mut vec!['-' as u8; max_gaps]);
-                //self.word.splice(self.word.len() - d_in_q..self.word.len() - d_in_q, vec!['-' as u8; max_gaps]);
-            }
+            self.word.append(&mut vec!['-' as u8; max_gaps]);
             self.num_gaps += max_gaps;
             self.padding_right -= max_gaps;
             self.set_vlen();
-            // the two HSPs pcan now be joined overlapping
+            // the two HSPs can now be joined overlapping, as distance in record is now 0
         }
         else if d_in_rec > d_in_q {
-            //println!("2");
             // we need to append gaps to one HSP in order to join the two HSPs
             // additionally the distance needs to be filled to allow overlapped joining
             // TODO: figure out best gap placements
@@ -258,11 +198,15 @@ impl HSP {
             // the HSPs can now be joined overlapping with overlap 0
         }
         else if d_in_q <= max_d {
-            //println!("3");
+            if self.padding_right < d_in_q {
+                return Err("");
+            }
             self.word.extend_from_slice(&query.seq[self.idx_in_query + self.virtual_length..self.idx_in_query + self.virtual_length + d_in_q]);
+            self.padding_right -= d_in_q;
+            self.set_vlen();
+            self.score += get_score(&self.word[self.word.len() - d_in_q..], &self.db_seq[self.padding_left + self.word.len() - d_in_q..self.padding_left + self.word.len()], scheme);
         }
         else if !self.is_extended_left || !other.is_extended_right {
-            //println!("4");
             // the HSPs are separate, d > max_d and d_in_q == d_in_rec and we can try to join them recursively
             if !self.is_extended_left {
                 //self.extend_left(scheme, query, params, max_gaps, d_in_q);
@@ -274,7 +218,6 @@ impl HSP {
             }
             return self.try_join_separate(other, scheme, params, query, max_d);
         }
-        //println!("try");
         self.try_join_overlapping(other, scheme)?;
         Ok(())
     }
@@ -292,7 +235,7 @@ impl HSP {
             else {
                 self.score += scheme.miss;
             }
-            if self.score > best_score {
+            if self.score >= best_score {
                 best_score = self.score;
                 best_extension = i;
             }
@@ -310,29 +253,32 @@ impl HSP {
 
     fn extend_right_ungapped(&mut self, scheme: &Arc<ScoringScheme>, query: &Arc<SimpleRecord>, params: &Arc<Params>, max_extension: usize) {
         let mut best_score = self.score;
-        let mut best_extension = 0;
-        let mut extended = 0;
-        for i in 1..max_extension.min(query.seq.len() - self.idx_in_query - self.virtual_length).min(self.padding_right) {
-            extended = i;
-            self.word.push(query.seq[self.idx_in_query + self.word.len() + 1]);
-            if query.seq[self.idx_in_query + self.virtual_length + i] == self.db_seq[self.padding_left + self.word.len() + 1] {
+        let mut buf = Vec::default();
+        self.padding_right = self.db_seq.len() - self.word.len() - self.padding_left;
+        self.set_vlen();
+        let mut best_ext = 0;
+        for _i in 1..max_extension.min(query.seq.len() - self.idx_in_query - self.virtual_length).min(self.padding_right + 1) {
+            best_ext += 1;
+            buf.push(query.seq[self.idx_in_query + self.virtual_length + best_ext - 1]);
+            if buf[buf.len() - 1] == self.db_seq[self.padding_left + self.word.len() + best_ext - 1] {
                 self.score += scheme.hit;
             }
             else {
                 self.score += scheme.miss;
             }
-            if self.score > best_score {
-                best_score = self.score;
-                best_extension = i;
-            }
-            else if self.score < params.extension_threshold {
+            if self.score < params.extension_threshold {
+                self.score = best_score;
                 break;
+            }
+            else if self.score >= best_score {
+                self.word.append(&mut buf);
+                self.padding_right -= best_ext;
+                best_ext = 0;
+                self.set_vlen();
+                best_score = self.score;
             }
         }
         self.score = best_score;
-        let _ = self.word.split_off(self.word.len() + best_extension - extended);
-        self.padding_right = self.word.len() - self.padding_left;
-        self.set_vlen();
         self.is_extended_right = true;
     }
 
@@ -535,7 +481,7 @@ impl fmt::Display for HSP {
 impl Debug for HSP {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "\nquery info: idx {}, len {}, end {}", self.idx_in_query, self.word.len(), self.idx_in_query + self.word.len())?;
-        writeln!(f, "db info   : idx {}, len {}, end {}, pad l {} r {}\n", self.idx_in_record, self.db_seq.len(), self.idx_in_record + self.db_seq.len(), self.padding_left, self.padding_right)?;
+        writeln!(f, "db info   : idx {}, len {}, end {}, pad l {} r {}, tot {}\n", self.idx_in_record, self.db_seq.len(), self.idx_in_record + self.db_seq.len(), self.padding_left, self.padding_right, self.padding_left + self.word.len() + self.padding_right)?;
         Ok(())
     }
 }
@@ -918,8 +864,8 @@ fn scan(chunk: ProcessedChunk, params: Arc<Params>, query: Arc<SimpleRecord>, sc
                 word: bytes_to_chars(&query.words[j], 3, 0),
                 idx_in_query: j,
                 idx_in_record: chunk.start_in_rec as usize + i * 4 + chunk.start_byte * 4 - params.extension_length.min((chunk.start_byte + i) * 4),
-                is_extended_right: !true, // there is an error in extend right, which i need to fix. thus is is temporarily turned off.
-                is_extended_left: !true, // actually extend left is false. mazbe both??
+                is_extended_right: false,
+                is_extended_left: false,
                 is_joined: false,
                 e_val: 0.0, //TODO
                 num_gaps: 0,
