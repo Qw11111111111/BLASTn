@@ -1,3 +1,0 @@
-id,start_byte,start_bit,end_byte,end_bit
->rec1,0,0,4,3
->rec2,5,0,12,3
