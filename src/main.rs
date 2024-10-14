@@ -1,21 +1,20 @@
-pub mod parser;
+#![allow(clippy::too_many_arguments, clippy::upper_case_acronyms)]
+pub mod blastn2;
 pub mod dust;
 pub mod make_db;
-pub mod blastn2;
+pub mod parser;
 
 use clap::Parser;
-use std::{
-    env, fs, path::PathBuf, time::Instant
-};
+use std::{env, fs, path::PathBuf, time::Instant};
 
 use blastn2::{align, Params};
-use parser::Args;
 use make_db::save_db::generate_db;
+use parser::Args;
 
 fn main() -> Result<(), String> {
     let args = Args::parse();
     let exe_path = env::current_exe().expect("could not get path of executable");
-    let p = &(args.db_file.split('.').nth(0).unwrap().to_string() + "/");
+    let p = &(args.db_file.split('.').next().unwrap().to_string() + "/");
     let now = Instant::now();
     let out_p: PathBuf;
     if args.out_path == "." {
@@ -26,20 +25,17 @@ fn main() -> Result<(), String> {
                 .and_then(|p| p.parent())
                 .map(|p_| p_.join(p))
                 .unwrap();
+        } else {
+            out_p = exe_path.parent().map(|p_| p_.join(p)).unwrap();
         }
-        else {
-            out_p = exe_path
-                .parent()
-                .map(|p_| p_.join(p))
-                .unwrap();
-        }
-    }
-    else {
+    } else {
         out_p = args.out_path.into();
     }
 
     if args.db_file.starts_with('.') {
-        eprintln!("DB Path should not start with a . as that case is currently not handled correctly");
+        eprintln!(
+            "DB Path should not start with a . as that case is currently not handled correctly"
+        );
         return Ok(());
     }
 
@@ -49,13 +45,17 @@ fn main() -> Result<(), String> {
     }
 
     let params = Params {
-        k: if args.length % 4 == 0 {args.length} else {12},
+        k: if args.length % 4 == 0 {
+            args.length
+        } else {
+            12
+        },
         extension_threshold: 24,
         scanning_threshold: args.threshold as i16,
         extension_length: 64,
         verbose: args.verbose,
         masking_threshold: args.masking_threshold,
-        masking: !args.no_masking
+        masking: !args.no_masking,
     };
 
     let _ = align(out_p, &args.query_file, args.num_workers, params);

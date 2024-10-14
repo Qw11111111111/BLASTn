@@ -1,10 +1,16 @@
-use std::{fs, io::{self, Read}, path::PathBuf, str, sync::mpsc};
 use super::records::VecRecord;
+use std::{
+    fs,
+    io::{self, Read},
+    path::PathBuf,
+    str,
+    sync::mpsc,
+};
 
 pub fn read_compressed_db(path: &str) -> io::Result<String> {
     let file = fs::File::open(path)?;
     let mut reader = io::BufReader::new(file);
-    let mut buf = vec![0;1024];
+    let mut buf = vec![0; 1024];
     let mut all_nts = "".to_string();
     loop {
         let bytes = reader.read(&mut buf)?;
@@ -22,18 +28,16 @@ pub fn read_compressed_db(path: &str) -> io::Result<String> {
 pub fn extract_str_from_bytes(bytes: &[u8]) -> String {
     let mut nts = "".to_string();
     for byte in bytes.iter() {
-        let chars = (0..=6)
-            .step_by(2)
-            .map(|i| {
-                let bit = (byte >> (6 - i)) & 0b11;
-                match bit {
-                    0b00 => 'A',
-                    0b01 => 'G',
-                    0b10 => 'T',
-                    0b11 => 'C',
-                    _ => 'N'
-                }
-            });
+        let chars = (0..=6).step_by(2).map(|i| {
+            let bit = (byte >> (6 - i)) & 0b11;
+            match bit {
+                0b00 => 'A',
+                0b01 => 'G',
+                0b10 => 'T',
+                0b11 => 'C',
+                _ => 'N',
+            }
+        });
         nts.extend(chars);
     }
     nts
@@ -46,35 +50,34 @@ pub fn bytes_to_chars(bytes: &[u8], end_bit: usize, start_bit: usize) -> Vec<u8>
         let start: usize;
         if j == bytes.len() - 1 {
             end = end_bit * 2;
-        }
-        else {
+        } else {
             end = 6;
         }
         if j == 0 {
             start = start_bit * 2;
-        }
-        else {
+        } else {
             start = 0;
         }
-        let chars = (start..=end)
-            .step_by(2)
-            .map(|i| {
-                let bit = (byte >> (6 - i)) & 0b11;
-                match bit {
-                    0b00 => 'A' as u8,
-                    0b01 => 'G' as u8,
-                    0b10 => 'T' as u8,
-                    0b11 => 'C' as u8,
-                    _ => '-' as u8
-                }
-            });
+        let chars = (start..=end).step_by(2).map(|i| {
+            let bit = (byte >> (6 - i)) & 0b11;
+            match bit {
+                0b00 => b'A',
+                0b01 => b'G',
+                0b10 => b'T',
+                0b11 => b'C',
+                _ => b'-',
+            }
+        });
         nts.extend(chars);
     }
     nts
 }
 
-
-pub fn parse_compressed_db_lazy(path: PathBuf, chunk_size: usize, sender: mpsc::Sender<Vec<u8>>) -> io::Result<()> {
+pub fn parse_compressed_db_lazy(
+    path: PathBuf,
+    chunk_size: usize,
+    sender: mpsc::Sender<Vec<u8>>,
+) -> io::Result<()> {
     let file = fs::File::open(path.join("seq.bin"))?;
     let mut reader = io::BufReader::new(file);
     let mut buf = vec![0; chunk_size];
@@ -85,7 +88,9 @@ pub fn parse_compressed_db_lazy(path: PathBuf, chunk_size: usize, sender: mpsc::
             break;
         }
         //println!("read: {:#?}", extract_str_from_bytes(&buf[..bytes]));
-        sender.send(buf[..bytes].to_vec()).expect("couldnt send buf");
+        sender
+            .send(buf[..bytes].to_vec())
+            .expect("couldnt send buf");
     }
 
     Ok(())

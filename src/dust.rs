@@ -4,33 +4,31 @@ pub struct Dust {
     window_size: usize,
     threshold: f64,
     query: Vec<u8>,
-    lut: HashMap<[u8; 3], usize>
+    lut: HashMap<[u8; 3], usize>,
 }
 
 impl Dust {
     //TODO: implement symmetric DUST
     pub fn new(window_size: usize, threshold: f64, query: Vec<u8>) -> Self {
         Self {
-            window_size: window_size,
-            threshold: threshold,
-            query: query,
-            lut: HashMap::default()
+            window_size,
+            threshold,
+            query,
+            lut: HashMap::default(),
         }
     }
 
     pub fn mask_regions(&mut self) -> Vec<u8> {
         self.generate_lut();
         let mut current_word: VecDeque<usize> = VecDeque::new();
-        let mut res : Vec<(usize, usize)> = Vec::new();
+        let mut res: Vec<(usize, usize)> = Vec::new();
 
         for i in 2..self.query.len() + self.window_size - 3 {
-            let wstart: usize;
-            if i < self.window_size {
-                wstart = 0;
-            }
-            else {
-                wstart = i - self.window_size;
-            }
+            let wstart: usize = if i < self.window_size {
+                0
+            } else {
+                i - self.window_size
+            };
             //let wend = std::cmp::min(self.query.len() - 1, i);
             if i < self.query.len() {
                 let t = self.get_triplet(&self.query, i - 2);
@@ -55,7 +53,6 @@ impl Dust {
             }
         }
         self.get_masked_seq(&res)
-
     }
 
     fn generate_lut(&mut self) {
@@ -92,7 +89,7 @@ impl Dust {
         (finish + 2, max_score)
     }
 
-    fn get_masked_seq(&self, res: &Vec<(usize, usize)>) -> Vec<u8> {
+    fn get_masked_seq(&self, res: &[(usize, usize)]) -> Vec<u8> {
         let mut masked = self.query.to_vec();
 
         for (start, finish) in res.iter() {

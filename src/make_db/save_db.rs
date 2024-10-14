@@ -1,5 +1,10 @@
-use std::{fs, io::{self, Write}, path::PathBuf, str, sync, thread};
-use super::{records::Record, parse_fasta::parse_and_compress_fasta};
+use super::{parse_fasta::parse_and_compress_fasta, records::Record};
+use std::{
+    fs,
+    io::{self, Write},
+    path::PathBuf,
+    str, sync, thread,
+};
 
 pub fn save_compressed_db(path: PathBuf, rx: sync::mpsc::Receiver<Vec<u8>>) -> io::Result<()> {
     let file = fs::File::create(path)?;
@@ -37,7 +42,8 @@ pub fn generate_db(db_path: &str, out_path: PathBuf) -> io::Result<()> {
     });
     let out_path_ = out_path.clone();
     let records = handle.join().unwrap().unwrap();
-    save_to_csv(records,  out_path_.join("records.csv"))?;
+    save_to_csv(records, out_path_.join("records.csv"))?;
     let _ = handle2.join();
     Ok(())
 }
+
