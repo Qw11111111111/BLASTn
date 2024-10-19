@@ -26,12 +26,11 @@ pub fn save_to_csv(recs: Vec<Record>, path: PathBuf) -> io::Result<()> {
     Ok(())
 }
 
-pub fn generate_db(db_path: &str, out_path: PathBuf) -> io::Result<()> {
-    fs::create_dir_all(out_path.clone())?;
-    let db_path_ = db_path.to_string();
+pub fn generate_db(db_path: PathBuf, out_path: PathBuf) -> io::Result<()> {
+    fs::create_dir_all(&out_path)?;
     let (tx, rx) = sync::mpsc::channel();
     let handle: thread::JoinHandle<io::Result<Vec<Record>>> = thread::spawn(move || {
-        let records = parse_and_compress_fasta(&db_path_, 2048, tx)?;
+        let records = parse_and_compress_fasta(&db_path, 2048, tx)?;
         Ok(records)
     });
     //let out_path_ = out_path.to_string();
@@ -46,4 +45,3 @@ pub fn generate_db(db_path: &str, out_path: PathBuf) -> io::Result<()> {
     let _ = handle2.join();
     Ok(())
 }
-

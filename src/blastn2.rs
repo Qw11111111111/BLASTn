@@ -13,6 +13,7 @@ use std::{
 use crate::{
     convert_to_ascii,
     dust::Dust,
+    global,
     make_db::{
         parse_fasta::{parse_small_fasta, parse_to_bytes},
         read_db::{bytes_to_chars, parse_compressed_db_lazy, read_csv},
@@ -209,6 +210,7 @@ impl HSP {
             return Err("distance too high");
         }
         if self.idx_in_query + self.virtual_length >= other.idx_in_query {
+            // TODO: this should probably be removed, as it changes the alignment of the HSPs.
             // we know, that we must insert gaps.
             // thus d_in_q is actually negative and is the overlap. we need to close the gap in teh record to join the HSPs with HSP3 = HSP1[..] + HSP2[overlap..]
             // TODO: figure out the best placements for the gaps. This is just a temp solution
@@ -239,6 +241,29 @@ impl HSP {
             if self.padding_right < d_in_rec {
                 return Err("padding too small");
             }
+
+            // global alignment of the gaps
+            // TODO: modify the algorithm to take &[u8] instead of String
+            // TODO: check how to align masked reigions
+            // TODO: gaps in db allowed?? -> need to handle them
+            // TODO: modify nw algo to return Vec<u8> or &[u8]
+            /*
+            let arg = global::Arguments {
+                db: self.db_seq[self.padding_left + self.word.len()
+                    ..self.padding_left + self.word.len() + d_in_rec]
+                    .iter()
+                    .map(|i| char::from_u32(*i as u32).unwrap())
+                    .collect::<String>(),
+                query: query.seq[self.idx_in_query + self.word.len()
+                    ..self.idx_in_query + self.word.len() + d_in_q]
+                    .iter()
+                    .map(|i| char::from_u32(*i as u32).unwrap())
+                    .collect::<String>(),
+                local: false,
+                verbose: false,
+            };
+            let _ = global::needleman_wunsch(&arg);
+            */
             if *self
                 .word
                 .last()
@@ -693,13 +718,13 @@ struct ScoringScheme {
 
 pub fn align(
     path_to_db: PathBuf,
-    path_to_query: &str,
+    path_to_query: PathBuf,
     num_workers: usize,
     params: Params,
 ) -> io::Result<()> {
     let total = Instant::now();
     let parser = Instant::now();
-    let mut query = parse_small_fasta(path_to_query)?;
+    let mut query = parse_small_fasta(&path_to_query)?;
     if params.masking {
         query.seq = Dust::new(64, params.masking_threshold, query.seq).mask_regions();
     }

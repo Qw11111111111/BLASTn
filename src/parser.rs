@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -5,11 +7,11 @@ use clap::Parser;
 pub struct Args {
     /// Path to query sequence
     #[arg(short, long)]
-    pub query_file: String,
+    pub query_file: PathBuf,
 
     /// Path to databank
     #[arg(short, long)]
-    pub db_file: String,
+    pub db_file: PathBuf,
 
     /// threshold for seeding
     #[arg(short, long, default_value = "60")]
@@ -40,6 +42,6 @@ pub struct Args {
     pub num_workers: usize,
 
     /// out path for db files
-    #[arg(long, short, default_value= ".")]
-    pub out_path: String
+    #[arg(long, short, default_value = "genomes/")]
+    pub out_path: PathBuf,
 }

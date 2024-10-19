@@ -2,6 +2,7 @@ use std::{
     cmp::{max, min},
     fs,
     io::{self, Read},
+    path::PathBuf,
     str, sync, vec,
 };
 //use crate::make_db::read_db::extract_str_from_bytes;
@@ -202,7 +203,7 @@ fn extract_ids(buf: &mut Vec<u8>) -> (Option<Id>, Option<usize>) {
 }
 
 pub fn parse_and_compress_fasta(
-    path: &str,
+    path: &PathBuf,
     chunk_size: usize,
     tx: sync::mpsc::Sender<Vec<u8>>,
 ) -> io::Result<Vec<Record>> {
@@ -217,7 +218,6 @@ pub fn parse_and_compress_fasta(
     let mut last_missing: usize = 0;
     let mut buffer = vec![0; chunk_size];
     let mut faulty_idx = 0;
-
     loop {
         let mut bytes = reader.read(&mut buffer[faulty_idx..])?;
         bytes += faulty_idx;
@@ -263,7 +263,7 @@ pub fn parse_and_compress_fasta(
     Ok(records)
 }
 
-pub fn parse_small_fasta(path: &str) -> io::Result<SimpleRecord> {
+pub fn parse_small_fasta(path: &PathBuf) -> io::Result<SimpleRecord> {
     let mut query = fs::read(path)?;
     let mut rec = SimpleRecord {
         id: "".to_string(),
